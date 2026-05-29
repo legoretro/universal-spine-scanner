@@ -415,6 +415,99 @@
     els.scanStack.disabled = disabled;
   }
 
+  async function readSpineBand(band, bandIndex, bandCount) {
+    var variants = makeSpineOcrVariants(band);
+    var best = { title: "", rawText: "", confidence: 0, quality: 0, score: -1 };
+    for (var variantIndex = 0; variantIndex < variants.length; variantIndex += 1) {
+      var variant = variants[variantIndex];
+      var result = await window.Tesseract.recognize(variant.canvas, "eng", {
+        tessedit_pageseg_mode: "7",
+        preserve_interword_spaces: "1",
+        logger: function (message) {
+          if (message.status === "recognizing text") {
+            var variantShare = 1 / Math.max(1, variants.length);
+            var progress = (bandIndex + (variantIndex * variantShare) + (Math.max(0.02, message.progress || 0) * variantShare)) / bandCount;
+            setProgress(progress);
+          }
+        }
+      });
+      var rawText = result && result.data && result.data.text || "";
+      var confidence = Number(result && result.data && result.data.confidence || 0);
+      var title = bestSpineTitle(rawText);
+      var quality = titleQuality(title);
+      var score = quality * 100 + confidence + title.length * 0.08 + (variant.priority || 0);
+      if (score > best.score) {
+        best = { title: title, rawText: rawText, confidence: confidence, quality: quality, score: score };
+      }
+      if (quality >= 0.72 && confidence >= 45) break;
+    }
+    best.title = applyKnownTitleHelp(best.title);
+    best.quality = titleQuality(best.title);
+    if (!shouldLookupTitle(best.title)) {
+      best.title = best.title || "";
+    }
+    return best;
+  }
+
+  function makeSpineOcrVariants(source) {
+    var variants = [
+      { name: "wide", xStart: 0.04, xEnd: 0.96, threshold: false, priority: 2 },
+      { name: "middle", xStart: 0.12, xEnd: 0.9, threshold: false, priority: 1 }
+    ];
+    if (source.height < 140 || source.width < 900) {
+      variants.push({ name: "sharp", xStart: 0.02, xEnd: 0.98, threshold: true, priority: 0 });
+    }
+    return variants.map(function (variant) {
+      return {
+        name: variant.name,
+        priority: variant.priority,
+        canvas: prepareSpineOcrCanvas(source, variant)
+      };
+    });
+  }
+
+  function prepareSpineOcrCanvas(source, options) {
+    var x = Math.floor(source.width * options.xStart);
+    var width = Math.max(40, Math.floor(source.width * (options.xEnd - options.xStart)));
+    var targetHeight = Math.max(170, Math.min(260, source.height * 3));
+    var scale = targetHeight / Math.max(1, source.height);
+    var targetWidth = Math.max(420, Math.min(1900, Math.round(width * scale)));
+    var canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    var ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(source, x, 0, width, source.height, 0, 0, canvas.width, canvas.height);
+    normalizeOcrPixels(canvas, Boolean(options.threshold));
+    return canvas;
+  }
+
+  function normalizeOcrPixels(canvas, threshold) {
+    var ctx = canvas.getContext("2d");
+    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var data = imageData.data;
+    var total = 0;
+    for (var index = 0; index < data.length; index += 4) {
+      total += (data[index] * 0.299) + (data[index + 1] * 0.587) + (data[index + 2] * 0.114);
+    }
+    var mean = total / Math.max(1, data.length / 4);
+    var factor = threshold ? 1.95 : 1.55;
+    for (var pixel = 0; pixel < data.length; pixel += 4) {
+      var lum = (data[pixel] * 0.299) + (data[pixel + 1] * 0.587) + (data[pixel + 2] * 0.114);
+      lum = clamp((lum - mean) * factor + 148);
+      if (threshold) {
+        lum = lum > 142 ? 255 : 0;
+      }
+      data[pixel] = lum;
+      data[pixel + 1] = lum;
+      data[pixel + 2] = lum;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
   async function runStackScan() {
     if (!state.currentImage) {
       setStatus("Take or choose a stack photo first.");
@@ -436,26 +529,34 @@
       var results = [];
       for (var index = 0; index < bands.length; index += 1) {
         var band = cropBandCanvas(base, bands[index]);
-        boostContrast(band);
         setLiveStatus("Scanning spine " + (index + 1) + " of " + bands.length + "...");
-        var result = await window.Tesseract.recognize(band, "eng", {
-          logger: function (message) {
-            if (message.status === "recognizing text") {
-              setProgress((index + Math.max(0.05, message.progress || 0)) / bands.length);
-            }
-          }
+        var ocr = await readSpineBand(band, index, bands.length);
+        var title = ocr.title || "Unclear spine " + (index + 1);
+        var lookup = shouldLookupTitle(title)
+          ? await api("/api/lookup-ebay?title=" + encodeURIComponent(title) + "&itemType=" + encodeURIComponent(state.itemType))
+            .catch(function () {
+              return buildStaticEbayLookup(title);
+            })
+          : buildNoLookup(title, "OCR was not clear enough to search eBay yet.");
+        lookup = enrichLookup(lookup);
+        if (lookup.suggestedTitle && shouldUseSuggestedTitle(title, lookup.suggestedTitle)) {
+          title = cleanSpineCandidate(lookup.suggestedTitle);
+          lookup.query = title;
+        }
+        results.push({
+          id: cryptoId(),
+          title: title,
+          rawText: ocr.rawText,
+          quality: ocr.quality,
+          confidence: ocr.confidence,
+          needsRescan: !shouldLookupTitle(title),
+          lookup: lookup,
+          memory: findMemoryMatch(title)
         });
-        var rawText = result && result.data && result.data.text || "";
-        var title = bestSpineTitle(rawText) || "Unclear spine " + (index + 1);
-        var lookup = await api("/api/lookup-ebay?title=" + encodeURIComponent(title))
-          .catch(function () {
-            return buildStaticEbayLookup(title);
-          });
-        results.push({ id: cryptoId(), title: title, rawText: rawText, lookup: enrichLookup(lookup), memory: findMemoryMatch(title) });
         renderLiveResults(results);
       }
       setProgress(1);
-      setLiveStatus(hasLiveBackend() ? "Done. eBay data loaded into the cards." : "Add the live backend URL to load eBay STR and seller memory inside the cards.");
+      setLiveStatus(hasLiveBackend() ? "Done. Clean titles were checked against eBay. Edit any weak title and rescan that item." : "Add the live backend URL to load eBay STR and seller memory inside the cards.");
       setStatus("Live lookup list is ready.");
     } catch (error) {
       setLiveStatus("Stack scan stopped: " + error.message);
@@ -596,15 +697,28 @@
       .filter(function (line) {
         return line.length >= 3 && /[a-z]/i.test(line) && !isNoiseLine(line);
       });
+    var candidates = lines.slice();
+    for (var index = 0; index < lines.length - 1; index += 1) {
+      candidates.push(cleanSpineCandidate(lines[index] + " " + lines[index + 1]));
+    }
+    var best = candidates
+      .map(function (candidate) {
+        candidate = applyOcrWordRepairs(candidate);
+        return { title: candidate, score: titleQuality(candidate) * 100 + candidate.length * 0.2 };
+      })
+      .sort(function (a, b) { return b.score - a.score; })[0];
+    if (best && best.title && titleQuality(best.title) >= 0.35) {
+      return best.title.slice(0, 100);
+    }
     var combined = cleanSpineCandidate(lines.join(" "));
     if (combined.length >= 4) {
-      return combined.slice(0, 100);
+      return applyOcrWordRepairs(combined).slice(0, 100);
     }
-    return cleanSpineCandidate(text).slice(0, 100);
+    return applyOcrWordRepairs(cleanSpineCandidate(text)).slice(0, 100);
   }
 
   function cleanSpineCandidate(value) {
-    return cleanTitle(value)
+    return applyOcrWordRepairs(cleanTitle(value))
       .replace(/\b(walt disney|disney|home video|family feature|hi[- ]?fi|stereo|closed captioned|vhs|dvd|blu[- ]?ray)\b/gi, " ")
       .replace(/\b(isbn|upc|rated|minutes?|mins?|color|clamshell)\b/gi, " ")
       .replace(/\b\d{4,}\b/g, " ")
@@ -616,6 +730,82 @@
     return /^(vhs|dvd|blu ray|hi fi|stereo|closed captioned|rated|color|isbn|upc)$/i.test(value.trim());
   }
 
+  function applyOcrWordRepairs(value) {
+    return String(value || "")
+      .replace(/\bFHO?M\b/gi, "From")
+      .replace(/\bFR0M\b/gi, "From")
+      .replace(/\bH0ME\b/gi, "Home")
+      .replace(/\bMira(?:c|e|ee|cee)+\b/gi, "Miracle")
+      .replace(/\bStree(?:t|l|i)?\b/gi, "Street")
+      .replace(/\bPoo[h]?\b/gi, "Pooh")
+      .replace(/\bPocahontas\s*ll\b/gi, "Pocahontas II")
+      .replace(/\bTram[pb]\b/gi, "Tramp")
+      .replace(/\bAlad[d]?in\b/gi, "Aladdin")
+      .replace(/\bJaf[a-z]{1,3}\b/gi, "Jafar")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function applyKnownTitleHelp(value) {
+    var title = cleanTitle(value);
+    var direct = [
+      [/miracle/i, "Miracle on 34th Street"],
+      [/winnie|pooh/i, "Winnie the Pooh"],
+      [/lion.*king|simba/i, "The Lion King II Simba's Pride"],
+      [/stuart.*little.*2|little\s*2/i, "Stuart Little 2"],
+      [/stuart.*little/i, "Stuart Little"],
+      [/old.*yell/i, "Old Yeller"],
+      [/lady.*tramp/i, "Lady and the Tramp II"],
+      [/bedknob|broom/i, "Bedknobs and Broomsticks"],
+      [/\bbabe\b/i, "Babe"],
+      [/aladdin|king.*thieves/i, "Aladdin and the King of Thieves"],
+      [/jafar/i, "The Return of Jafar"],
+      [/pocahontas/i, "Pocahontas II Journey to a New World"],
+      [/jungle.*book|mowgli|baloo/i, "The Second Jungle Book Mowgli and Baloo"],
+      [/yellow.*dog|far.*from.*home|from home/i, "Far From Home The Adventures of Yellow Dog"],
+      [/heidi/i, "Heidi"],
+      [/island.*world/i, "The Island at the Top of the World"]
+    ];
+    for (var index = 0; index < direct.length; index += 1) {
+      if (direct[index][0].test(title)) return direct[index][1];
+    }
+    return title;
+  }
+
+  function titleQuality(value) {
+    var title = cleanTitle(value);
+    if (!title || /^unclear spine/i.test(title)) return 0;
+    var letters = (title.match(/[a-z]/gi) || []).length;
+    var vowels = (title.match(/[aeiou]/gi) || []).length;
+    var digits = (title.match(/\d/g) || []).length;
+    var words = title.split(/\s+/).filter(Boolean);
+    var longWords = words.filter(function (word) { return word.replace(/[^a-z]/gi, "").length >= 4; }).length;
+    var weirdWords = words.filter(function (word) {
+      var clean = word.replace(/[^a-z]/gi, "");
+      return clean.length >= 4 && !/[aeiou]/i.test(clean);
+    }).length;
+    if (letters < 4 || !longWords) return 0.15;
+    var score = 0.25;
+    score += Math.min(0.28, letters / 70);
+    score += Math.min(0.2, vowels / Math.max(letters, 1));
+    score += Math.min(0.2, longWords / Math.max(words.length, 1));
+    score -= Math.min(0.25, weirdWords * 0.12);
+    score -= digits > letters ? 0.12 : 0;
+    if (words.length === 1 && letters < 7) score -= 0.18;
+    return Math.max(0, Math.min(1, score));
+  }
+
+  function shouldLookupTitle(title) {
+    return titleQuality(title) >= 0.43;
+  }
+
+  function shouldUseSuggestedTitle(currentTitle, suggestedTitle) {
+    var current = titleQuality(currentTitle);
+    var suggested = titleQuality(suggestedTitle);
+    if (!suggestedTitle || suggested < 0.45) return false;
+    return suggested > current || suggestedTitle.length > currentTitle.length + 8;
+  }
+
   function renderLiveResults(results) {
     if (!results.length) {
       els.liveResults.innerHTML = "";
@@ -623,7 +813,7 @@
     }
     els.liveResults.innerHTML = results.map(function (result, index) {
       var lookup = enrichLookup(result.lookup || buildStaticEbayLookup(result.title));
-      var score = scoreFor(lookup);
+      var score = result.needsRescan ? { color: "unknown", label: "Rescan", reason: "OCR title is too weak.", decision: "review" } : scoreFor(lookup);
       var price = lookup.estimatedPrice ? money(lookup.estimatedPrice) : "add data";
       var bucket = lookup.valueBucket || "check manually";
       var memory = sellerMemoryFor(result);
@@ -632,6 +822,7 @@
           '<span class="live-number">' + (index + 1) + '</span>' +
           '<input class="live-title-input" data-live-title="' + index + '" value="' + escapeAttr(result.title) + '">' +
           '<span class="score-pill">' + escapeHtml(score.label) + '</span>' +
+          '<span class="scan-quality">OCR ' + Math.round(Number(result.quality || 0) * 100) + '%</span>' +
           '<div class="live-score-grid">' +
             '<label>Sold<input data-live-sold="' + index + '" type="number" min="0" inputmode="numeric" value="' + escapeAttr(lookup.soldCount || "") + '"></label>' +
             '<label>Active<input data-live-active="' + index + '" type="number" min="0" inputmode="numeric" value="' + escapeAttr(lookup.activeCount || "") + '"></label>' +
@@ -639,7 +830,7 @@
           '</div>' +
           '<span class="live-bucket">' + escapeHtml(bucket) + " - " + escapeHtml(price) + " - STR " + escapeHtml(formatRate(lookup.sellThroughRate)) + " - " + escapeHtml(score.reason) + '</span>' +
           '<span class="memory-line">' + escapeHtml(memory) + '</span>' +
-          renderMarketSamples(lookup) +
+          renderMarketSamples(lookup, result) +
         '</article>'
       );
     }).join("");
@@ -744,7 +935,7 @@
     }
     els.valueLookup.disabled = true;
     renderValueResult({ loading: true, query: query });
-    api("/api/lookup-ebay?title=" + encodeURIComponent(query))
+    api("/api/lookup-ebay?title=" + encodeURIComponent(query) + "&itemType=" + encodeURIComponent(state.itemType))
       .then(function (lookup) {
         state.currentLookup = enrichLookup(lookup);
         if (lookup.resaleDecision) {
@@ -800,7 +991,7 @@
       return;
     }
     if (type === "ebay-active" || type === "ebay-sold") {
-      api("/api/lookup-ebay?title=" + encodeURIComponent(query))
+      api("/api/lookup-ebay?title=" + encodeURIComponent(query) + "&itemType=" + encodeURIComponent(state.itemType))
         .then(function (lookup) {
           window.open(type === "ebay-active" ? lookup.activeUrl : lookup.soldUrl, "_blank", "noopener");
         })
@@ -987,7 +1178,7 @@
     var sold = Array.isArray(lookup.soldSample) ? lookup.soldSample : [];
     var active = Array.isArray(lookup.activeSample) ? lookup.activeSample : [];
     if (!sold.length && !active.length) {
-      return '<div class="market-samples empty">Live eBay samples will appear here after the backend is connected.</div>';
+      return '<div class="market-samples empty">' + escapeHtml(lookup.noLookupReason || "No confident eBay match yet. Edit the title or retake closer.") + '</div>';
     }
     return (
       '<div class="market-samples">' +
@@ -1084,6 +1275,16 @@
       activeUrl: urlForLookup("active", clean),
       soldUrl: urlForLookup("sold", clean)
     };
+  }
+
+  function buildNoLookup(query, reason) {
+    var lookup = buildStaticEbayLookup(query);
+    lookup.source = "ocr_needs_rescan";
+    lookup.valueBucket = "needs clearer title";
+    lookup.noLookupReason = reason || "OCR was not clear enough to search eBay.";
+    lookup.score = { color: "unknown", label: "Rescan", reason: "OCR title is too weak.", decision: "review" };
+    lookup.resaleDecision = "review";
+    return lookup;
   }
 
   function enrichLookup(lookup) {

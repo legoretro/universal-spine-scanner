@@ -6,21 +6,29 @@ class EbayLookup {
 
   async lookup(input) {
     const query = cleanLookupQuery(input.title || input.query || input.barcode || "");
+    const itemType = cleanLookupQuery(input.itemType || input.type || "");
+    const categoryIds = categoryIdsForItemType(itemType);
     const encoded = encodeURIComponent(query);
     const activeUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}`;
     const soldUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}&LH_Complete=1&LH_Sold=1`;
     let activeItems = [];
     let soldItems = [];
+    let activeTotal = 0;
+    let soldTotal = 0;
     const warnings = [];
 
     if (this.config.ebayConfigured && query) {
       try {
-        activeItems = await this.searchActiveListings(query);
+        const active = await this.searchActiveListings(query, categoryIds);
+        activeItems = active.items;
+        activeTotal = active.total;
       } catch (error) {
         warnings.push(`Active lookup: ${error.message}`);
       }
       try {
-        soldItems = await this.searchSoldItems(query);
+        const sold = await this.searchSoldItems(query, categoryIds);
+        soldItems = sold.items;
+        soldTotal = sold.total;
       } catch (error) {
         warnings.push(`Sold lookup: ${error.message}`);
       }
@@ -31,14 +39,17 @@ class EbayLookup {
     const activePrices = activeItems.map(itemPrice).filter((price) => price > 0);
     const soldPrices = soldItems.map(itemPrice).filter((price) => price > 0);
     const estimatedPrice = median(soldPrices.length ? soldPrices : activePrices);
-    const activeCount = activeItems.length;
-    const soldCount = soldItems.length;
+    const activeCount = activeTotal || activeItems.length;
+    const soldCount = soldTotal || soldItems.length;
     const sellThroughRate = activeCount || soldCount
       ? Math.round((soldCount / Math.max(activeCount + soldCount, 1)) * 100)
       : null;
+    const suggestedTitle = suggestTitle(query, soldItems.concat(activeItems));
 
     return {
       query,
+      itemType,
+      categoryIds,
       source: soldItems.length ? "ebay_active_and_sold_samples" : activeItems.length ? "ebay_active_sample" : "url_builder",
       activeUrl,
       soldUrl,
@@ -50,6 +61,7 @@ class EbayLookup {
       valueBucket: valueBucket(estimatedPrice),
       score: valueScore({ estimatedPrice, sellThroughRate }),
       resaleDecision: resaleDecision({ estimatedPrice, sellThroughRate, soldCount }),
+      suggestedTitle,
       activeSample: summarizeLookupItems(activeItems),
       soldSample: summarizeLookupItems(soldItems),
       sellerMemory: {
@@ -61,28 +73,40 @@ class EbayLookup {
     };
   }
 
-  async searchActiveListings(query) {
+  async searchActiveListings(query, categoryIds) {
     const token = await this.getAppToken("https://api.ebay.com/oauth/api_scope");
     const url = new URL(`${this.config.ebayApiBaseUrl}/buy/browse/v1/item_summary/search`);
     url.searchParams.set("q", query);
-    url.searchParams.set("limit", "20");
+    url.searchParams.set("limit", "30");
+    if (categoryIds) {
+      url.searchParams.set("category_ids", categoryIds);
+    }
     const payload = await ebayJson(url.toString(), {
       accessToken: token,
       marketplaceId: this.config.ebayMarketplaceId
     });
-    return payload.itemSummaries || [];
+    return {
+      items: payload.itemSummaries || [],
+      total: Number(payload.total || 0)
+    };
   }
 
-  async searchSoldItems(query) {
+  async searchSoldItems(query, categoryIds) {
     const token = await this.getAppToken("https://api.ebay.com/oauth/api_scope/buy.marketplace.insights");
     const url = new URL(`${this.config.ebayApiBaseUrl}/buy/marketplace_insights/v1_beta/item_sales/search`);
     url.searchParams.set("q", query);
-    url.searchParams.set("limit", "20");
+    url.searchParams.set("limit", "30");
+    if (categoryIds) {
+      url.searchParams.set("category_ids", categoryIds);
+    }
     const payload = await ebayJson(url.toString(), {
       accessToken: token,
       marketplaceId: this.config.ebayMarketplaceId
     });
-    return payload.itemSales || payload.itemSummaries || [];
+    return {
+      items: payload.itemSales || payload.itemSummaries || [],
+      total: Number(payload.total || 0)
+    };
   }
 
   async getAppToken(scope) {
@@ -141,6 +165,28 @@ function summarizeLookupItems(items) {
     price: itemPrice(item),
     url: item.itemWebUrl || item.itemAffiliateWebUrl || ""
   }));
+}
+
+function suggestTitle(query, items) {
+  const queryKey = titleKey(query);
+  if (!queryKey || !items.length) return "";
+  const best = items
+    .map((item) => {
+      const title = item.title || "";
+      return { title, score: titleSimilarity(queryKey, titleKey(title)) };
+    })
+    .filter((item) => item.title && item.score >= 0.18)
+    .sort((a, b) => b.score - a.score)[0];
+  return best ? cleanSuggestedTitle(best.title) : "";
+}
+
+function categoryIdsForItemType(itemType) {
+  const type = String(itemType || "").toLowerCase();
+  if (type === "vhs") return "309";
+  if (type === "dvd" || type === "blu-ray" || type === "blu ray" || type === "movie" || type === "movies") return "617";
+  if (type === "game" || type === "video game") return "139973";
+  if (type === "cd" || type === "cassette") return "176984";
+  return "";
 }
 
 function itemPrice(item) {
@@ -207,6 +253,34 @@ function roundMoney(value) {
 
 function cleanLookupQuery(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+function cleanSuggestedTitle(value) {
+  return cleanLookupQuery(value)
+    .replace(/\b(new|used|sealed|tested|working|rare|vhs|dvd|blu[- ]?ray|movie|video|tape|disc)\b/gi, " ")
+    .replace(/\b(black diamond|clamshell|walt disney|disney|home video|family feature)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
+function titleKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\b(the|a|an|and|of|for|with|vhs|dvd|blu|ray|movie|video|tape|disc|new|used)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleSimilarity(left, right) {
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const leftWords = left.split(" ").filter((word) => word.length > 2);
+  const rightWords = new Set(right.split(" ").filter((word) => word.length > 2));
+  if (!leftWords.length || !rightWords.size) return 0;
+  const hits = leftWords.reduce((count, word) => count + (rightWords.has(word) ? 1 : 0), 0);
+  return hits / Math.max(leftWords.length, rightWords.size);
 }
 
 module.exports = { EbayLookup, valueBucket, resaleDecision, valueScore };

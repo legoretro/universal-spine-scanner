@@ -459,6 +459,13 @@ progress {
   padding: 0.38rem 0.62rem;
 }
 
+.scan-quality {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  grid-column: 2 / -1;
+}
+
 .score-red .score-pill {
   background: #ef8d96;
 }
