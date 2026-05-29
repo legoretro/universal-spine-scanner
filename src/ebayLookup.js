@@ -30,7 +30,14 @@ class EbayLookup {
         soldItems = sold.items;
         soldTotal = sold.total;
       } catch (error) {
-        warnings.push(`Sold lookup: ${error.message}`);
+        try {
+          const fallbackSold = await this.searchCompletedItems(query, categoryIds);
+          soldItems = fallbackSold.items;
+          soldTotal = fallbackSold.total;
+          warnings.push("Sold lookup used eBay completed-items fallback.");
+        } catch (fallbackError) {
+          warnings.push(`Sold lookup: ${error.message}; completed-items fallback: ${fallbackError.message}`);
+        }
       }
     } else if (!this.config.ebayConfigured) {
       warnings.push("eBay API keys are not configured on the backend yet.");
@@ -109,6 +116,43 @@ class EbayLookup {
     };
   }
 
+  async searchCompletedItems(query, categoryIds) {
+    if (!this.config.ebayClientId) {
+      throw new Error("eBay App ID is not configured");
+    }
+    const url = new URL("https://svcs.ebay.com/services/search/FindingService/v1");
+    url.searchParams.set("OPERATION-NAME", "findCompletedItems");
+    url.searchParams.set("SERVICE-VERSION", "1.13.0");
+    url.searchParams.set("SECURITY-APPNAME", this.config.ebayClientId);
+    url.searchParams.set("RESPONSE-DATA-FORMAT", "JSON");
+    url.searchParams.set("REST-PAYLOAD", "");
+    url.searchParams.set("GLOBAL-ID", marketplaceToGlobalId(this.config.ebayMarketplaceId));
+    url.searchParams.set("keywords", query);
+    url.searchParams.set("paginationInput.entriesPerPage", "30");
+    url.searchParams.set("itemFilter(0).name", "SoldItemsOnly");
+    url.searchParams.set("itemFilter(0).value", "true");
+    if (categoryIds) {
+      url.searchParams.set("categoryId", String(categoryIds).split(",")[0]);
+    }
+    const response = await fetch(url.toString());
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error("eBay completed-items request failed");
+    }
+    const body = payload.findCompletedItemsResponse && payload.findCompletedItemsResponse[0] || {};
+    const ack = firstValue(body.ack);
+    if (ack && ack.toLowerCase() === "failure") {
+      const errors = body.errorMessage && body.errorMessage[0] && body.errorMessage[0].error || [];
+      throw new Error(errors.map((item) => firstValue(item.message)).filter(Boolean).join("; ") || "eBay completed-items lookup failed");
+    }
+    const searchResult = body.searchResult && body.searchResult[0] || {};
+    const pagination = body.paginationOutput && body.paginationOutput[0] || {};
+    return {
+      items: normalizeFindingItems(searchResult.item || []),
+      total: Number(firstValue(pagination.totalEntries) || 0)
+    };
+  }
+
   async getAppToken(scope) {
     const cached = this.tokens[scope];
     if (cached && cached.expiresAt > Date.now() + 60000) {
@@ -165,6 +209,18 @@ function summarizeLookupItems(items) {
     price: itemPrice(item),
     url: item.itemWebUrl || item.itemAffiliateWebUrl || ""
   }));
+}
+
+function normalizeFindingItems(items) {
+  return (items || []).map((item) => ({
+    title: firstValue(item.title),
+    price: { value: firstValue(item.sellingStatus && item.sellingStatus[0] && item.sellingStatus[0].currentPrice && item.sellingStatus[0].currentPrice[0] && item.sellingStatus[0].currentPrice[0].__value__) },
+    itemWebUrl: firstValue(item.viewItemURL)
+  }));
+}
+
+function firstValue(value) {
+  return Array.isArray(value) ? value[0] : value || "";
 }
 
 function suggestTitle(query, items) {
@@ -253,6 +309,11 @@ function roundMoney(value) {
 
 function cleanLookupQuery(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+function marketplaceToGlobalId(marketplaceId) {
+  if (String(marketplaceId || "").toUpperCase() === "EBAY_US") return "EBAY-US";
+  return "EBAY-US";
 }
 
 function cleanSuggestedTitle(value) {
