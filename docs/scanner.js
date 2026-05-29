@@ -545,7 +545,8 @@
     }
     var base = makeProcessedCanvas();
     var typedCount = Number(els.stackCount.value || 0);
-    var bands = splitStackBands(base, typedCount);
+    var stackSource = cropLikelyStackArea(base);
+    var bands = splitStackBands(stackSource, typedCount);
     els.liveResults.innerHTML = "";
     setLiveStatus("Found " + bands.length + " possible spine rows. Scanning now...");
     setStatus("Live stack scan running. This can take a minute.");
@@ -554,7 +555,7 @@
     try {
       var results = [];
       for (var index = 0; index < bands.length; index += 1) {
-        var band = cropBandCanvas(base, bands[index]);
+        var band = cropBandCanvas(stackSource, bands[index]);
         setLiveStatus("Scanning spine " + (index + 1) + " of " + bands.length + "...");
         var ocr = await readSpineBand(band, index, bands.length);
         var title = ocr.title || "Unclear spine " + (index + 1);
@@ -612,6 +613,115 @@
       });
     }
     return bands;
+  }
+
+  function cropLikelyStackArea(source) {
+    var bounds = detectStackBounds(source);
+    if (!bounds) return source;
+    var canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, bounds.right - bounds.left);
+    canvas.height = Math.max(1, bounds.bottom - bounds.top);
+    canvas.getContext("2d").drawImage(
+      source,
+      bounds.left,
+      bounds.top,
+      canvas.width,
+      canvas.height,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+    return canvas;
+  }
+
+  function detectStackBounds(source) {
+    var maxWidth = 420;
+    var scale = Math.min(1, maxWidth / Math.max(source.width, 1));
+    var width = Math.max(80, Math.round(source.width * scale));
+    var height = Math.max(80, Math.round(source.height * scale));
+    var canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext("2d");
+    ctx.drawImage(source, 0, 0, width, height);
+    var data = ctx.getImageData(0, 0, width, height).data;
+    var rowScores = new Array(height).fill(0);
+    var colScores = new Array(width).fill(0);
+    for (var y = 1; y < height - 1; y += 1) {
+      for (var x = 1; x < width - 1; x += 1) {
+        var offset = (y * width + x) * 4;
+        var previous = ((y - 1) * width + x) * 4;
+        var r = data[offset];
+        var g = data[offset + 1];
+        var b = data[offset + 2];
+        var max = Math.max(r, g, b);
+        var min = Math.min(r, g, b);
+        var sat = max - min;
+        var lum = (r * 0.299) + (g * 0.587) + (b * 0.114);
+        var prevLum = (data[previous] * 0.299) + (data[previous + 1] * 0.587) + (data[previous + 2] * 0.114);
+        var edge = Math.abs(lum - prevLum);
+        var content = sat * 0.9 + edge * 1.4 + Math.max(0, 210 - lum) * 0.18;
+        rowScores[y] += content;
+        colScores[x] += content;
+      }
+    }
+    rowScores = rowScores.map(function (score) { return score / Math.max(1, width); });
+    colScores = colScores.map(function (score) { return score / Math.max(1, height); });
+    var topBottom = strongestContentRange(rowScores, Math.max(20, Math.floor(height * 0.08)), 0.58);
+    var leftRight = strongestContentRange(colScores, Math.max(20, Math.floor(width * 0.16)), 0.5);
+    if (!topBottom || !leftRight) return null;
+    var top = Math.max(0, Math.round(topBottom.start / scale) - Math.round(source.height * 0.015));
+    var bottom = Math.min(source.height, Math.round(topBottom.end / scale) + Math.round(source.height * 0.02));
+    var left = Math.max(0, Math.round(leftRight.start / scale) - Math.round(source.width * 0.035));
+    var right = Math.min(source.width, Math.round(leftRight.end / scale) + Math.round(source.width * 0.035));
+    if (bottom - top < source.height * 0.12 || right - left < source.width * 0.35) return null;
+    if (bottom - top > source.height * 0.92 && right - left > source.width * 0.92) return null;
+    return { top: top, bottom: bottom, left: left, right: right };
+  }
+
+  function strongestContentRange(scores, minSize, thresholdWeight) {
+    if (!scores.length) return null;
+    var smooth = scores.map(function (_, index) {
+      var sum = 0;
+      var count = 0;
+      for (var offset = -4; offset <= 4; offset += 1) {
+        var current = index + offset;
+        if (current >= 0 && current < scores.length) {
+          sum += scores[current];
+          count += 1;
+        }
+      }
+      return sum / Math.max(1, count);
+    });
+    var max = Math.max.apply(null, smooth);
+    var mean = smooth.reduce(function (sum, value) { return sum + value; }, 0) / smooth.length;
+    var threshold = mean + (max - mean) * thresholdWeight;
+    var ranges = [];
+    var start = -1;
+    for (var index = 0; index < smooth.length; index += 1) {
+      if (smooth[index] >= threshold && start === -1) start = index;
+      if ((smooth[index] < threshold || index === smooth.length - 1) && start !== -1) {
+        var end = smooth[index] < threshold ? index : index + 1;
+        if (end - start >= minSize) {
+          ranges.push({ start: start, end: end, score: rangeScore(smooth, start, end) });
+        }
+        start = -1;
+      }
+    }
+    if (!ranges.length) return null;
+    ranges.sort(function (a, b) {
+      return (b.score * Math.sqrt(b.end - b.start)) - (a.score * Math.sqrt(a.end - a.start));
+    });
+    return ranges[0];
+  }
+
+  function rangeScore(values, start, end) {
+    var sum = 0;
+    for (var index = start; index < end; index += 1) {
+      sum += values[index] || 0;
+    }
+    return sum / Math.max(1, end - start);
   }
 
   function splitStackBands(source, typedCount) {
@@ -834,10 +944,15 @@
   }
 
   function shouldUseSuggestedTitle(currentTitle, suggestedTitle) {
+    if (isGenericVisualTitle(suggestedTitle)) return false;
     var current = titleQuality(currentTitle);
     var suggested = titleQuality(suggestedTitle);
     if (!suggestedTitle || suggested < 0.45) return false;
     return suggested > current || suggestedTitle.length > currentTitle.length + 8;
+  }
+
+  function isGenericVisualTitle(value) {
+    return /\b(lot|bundle|assorted|various|wholesale|disc lot|movie lot|dvd movie lot|collection)\b/i.test(String(value || ""));
   }
 
   function renderLiveResults(results) {

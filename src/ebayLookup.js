@@ -404,7 +404,11 @@ function marketplaceToGlobalId(marketplaceId) {
 }
 
 function cleanSuggestedTitle(value) {
-  return cleanLookupQuery(value)
+  const raw = cleanLookupQuery(value);
+  if (/\b(lot|bundle|assorted|various|wholesale|disc lot|movie lot|dvd movie lot|collection)\b/i.test(raw)) {
+    return "";
+  }
+  return raw
     .replace(/\b(new|used|sealed|tested|working|rare|vhs|dvd|blu[- ]?ray|movie|video|tape|disc)\b/gi, " ")
     .replace(/\b(black diamond|clamshell|walt disney|disney|home video|family feature)\b/gi, " ")
     .replace(/\s+/g, " ")
