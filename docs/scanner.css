@@ -90,6 +90,35 @@ h2 {
   font-size: 1.05rem;
 }
 
+.topbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.status-pill {
+  background: rgba(222, 193, 122, 0.18);
+  border: 1px solid rgba(222, 193, 122, 0.42);
+  border-radius: 999px;
+  color: #f8e7b4;
+  font-size: 0.68rem;
+  font-weight: 850;
+  padding: 0.42rem 0.55rem;
+  white-space: nowrap;
+}
+
+.status-pill.live {
+  background: rgba(127, 183, 178, 0.18);
+  border-color: rgba(127, 183, 178, 0.5);
+  color: #d9fffb;
+}
+
+.status-pill.warn {
+  background: rgba(239, 141, 150, 0.16);
+  border-color: rgba(239, 141, 150, 0.5);
+  color: #ffd5d9;
+}
+
 .eyebrow {
   color: var(--accent);
   font-size: 0.72rem;
@@ -332,6 +361,15 @@ progress {
   grid-template-columns: 1fr;
 }
 
+.backend-panel {
+  background: rgba(16, 15, 24, 0.45);
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.75rem;
+}
+
 .live-results {
   display: grid;
   gap: 0.55rem;
@@ -448,6 +486,59 @@ progress {
   font-size: 0.78rem;
   font-weight: 760;
   grid-column: 1 / -1;
+}
+
+.market-samples {
+  display: grid;
+  gap: 0.55rem;
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr;
+}
+
+.market-samples.empty {
+  background: rgba(239, 141, 150, 0.1);
+  border: 1px solid rgba(239, 141, 150, 0.24);
+  border-radius: 0.75rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 0.65rem;
+}
+
+.sample-column {
+  background: rgba(16, 15, 24, 0.44);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.65rem;
+}
+
+.sample-column strong {
+  color: var(--soft);
+  font-size: 0.8rem;
+}
+
+.sample-column span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.sample-column a {
+  color: var(--ink);
+  display: grid;
+  gap: 0.1rem;
+  text-decoration: none;
+}
+
+.sample-column a span {
+  color: var(--accent-2);
+  font-weight: 900;
+}
+
+.sample-column small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 .field {
@@ -628,7 +719,10 @@ textarea:focus {
 
   .camera-actions,
   .ocr-actions,
-  .save-actions {
+  .save-actions,
+  .stack-controls,
+  .backend-panel,
+  .market-samples {
     grid-template-columns: repeat(2, 1fr);
   }
 

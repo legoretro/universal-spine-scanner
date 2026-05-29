@@ -7,11 +7,12 @@ GitHub Pages practice URL after Pages is enabled from the `/docs` folder:
 
 Practice mode can scan photos, run OCR, save on the phone, export CSV, and open eBay/Google/Amazon search links.
 Exact eBay value math and Supabase syncing need backend hosting later because private keys cannot go inside GitHub Pages.
+After a backend is hosted, paste its URL into `Live eBay backend URL` in the scanner. Then the cards can load eBay active/sold samples, median price, STR, and score color directly inside the page.
 
 Live stack mode:
 - Upload one photo with many visible spines.
 - Tap "Scan stack now."
-- It OCRs each row and shows eBay active/sold lookup buttons without saving the items.
+- It OCRs each row and shows eBay value cards inside the page when the backend is connected.
 - Type the item count for best multi-item splitting.
 - Add sold count, active count, and price to calculate STR/color in practice mode.
 

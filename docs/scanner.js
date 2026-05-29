@@ -2,6 +2,7 @@
   "use strict";
 
   var STORAGE_KEY = "universal-spine-scans-v1";
+  var API_BASE_KEY = "universal-spine-api-base-url-v1";
   var STATIC_PAGES_MODE = window.location.hostname.endsWith("github.io") || window.location.protocol === "file:";
   var state = {
     itemType: "VHS",
@@ -14,6 +15,7 @@
     contrast: false,
     ocrRaw: "",
     currentLookup: null,
+    apiBaseUrl: "",
     scans: []
   };
 
@@ -38,6 +40,9 @@
     scanVertical: document.getElementById("scanVertical"),
     scanStack: document.getElementById("scanStack"),
     stackCount: document.getElementById("stackCount"),
+    backendStatus: document.getElementById("backendStatus"),
+    apiBaseUrl: document.getElementById("apiBaseUrl"),
+    saveApiBase: document.getElementById("saveApiBase"),
     liveLookupStatus: document.getElementById("liveLookupStatus"),
     liveResults: document.getElementById("liveResults"),
     ocrProgress: document.getElementById("ocrProgress"),
@@ -62,9 +67,12 @@
   };
 
   function init() {
+    state.apiBaseUrl = loadApiBaseUrl();
+    els.apiBaseUrl.value = state.apiBaseUrl;
     state.scans = loadLocalScans();
     bindEvents();
     renderList();
+    checkBackendStatus();
     refreshBackendScans();
     registerServiceWorker();
     renderQueue();
@@ -144,6 +152,7 @@
     els.scanStack.addEventListener("click", runStackScan);
     els.liveResults.addEventListener("click", handleLiveResultClick);
     els.liveResults.addEventListener("change", handleLiveResultEdit);
+    els.saveApiBase.addEventListener("click", saveApiBaseUrl);
 
     els.saveScan.addEventListener("click", saveCurrentScan);
     els.nextPhoto.addEventListener("click", moveNext);
@@ -446,7 +455,7 @@
         renderLiveResults(results);
       }
       setProgress(1);
-      setLiveStatus("Done. Edit any title, then tap eBay active or sold.");
+      setLiveStatus(hasLiveBackend() ? "Done. eBay data loaded into the cards." : "Done. Add the live backend URL to load eBay STR inside the cards.");
       setStatus("Live lookup list is ready.");
     } catch (error) {
       setLiveStatus("Stack scan stopped: " + error.message);
@@ -630,6 +639,7 @@
           '</div>' +
           '<span class="live-bucket">' + escapeHtml(bucket) + " - " + escapeHtml(price) + " - STR " + escapeHtml(formatRate(lookup.sellThroughRate)) + " - " + escapeHtml(score.reason) + '</span>' +
           '<span class="memory-line">' + escapeHtml(memoryText(memory)) + '</span>' +
+          renderMarketSamples(lookup) +
           '<button class="tiny-button" type="button" data-live-action="active" data-index="' + index + '">eBay active</button>' +
           '<button class="tiny-button" type="button" data-live-action="sold" data-index="' + index + '">eBay sold</button>' +
           '<button class="tiny-button" type="button" data-live-action="google" data-index="' + index + '">Google</button>' +
@@ -821,6 +831,7 @@
       "<strong>" + escapeHtml(score.label) + " - " + escapeHtml(lookup.valueBucket || bucketForPrice(lookup.estimatedPrice)) + " - " + price + "</strong>" +
       "<span>STR " + escapeHtml(rate) + " | active " + Number(lookup.activeCount || 0) + " | sold " + Number(lookup.soldCount || 0) + " | " + escapeHtml(score.reason) + "</span>" +
       "<span>Decision: " + escapeHtml(lookup.resaleDecision || score.decision || "review") + "</span>" +
+      renderMarketSamples(lookup) +
       (lookup.warnings && lookup.warnings.length ? "<span>Note: sold API may need approval. Use the eBay sold button too.</span>" : "");
   }
 
@@ -993,10 +1004,11 @@
   }
 
   function api(path, options) {
-    if (STATIC_PAGES_MODE) {
+    var apiUrl = apiUrlFor(path);
+    if (!apiUrl) {
       return Promise.reject(new Error("Backend is not connected in GitHub Pages practice mode."));
     }
-    return fetch(path, Object.assign({
+    return fetch(apiUrl, Object.assign({
       headers: { "Content-Type": "application/json" }
     }, options || {})).then(function (response) {
       return response.json().then(function (body) {
@@ -1006,6 +1018,82 @@
         return body;
       });
     });
+  }
+
+  function apiUrlFor(path) {
+    if (!STATIC_PAGES_MODE) return path;
+    if (!state.apiBaseUrl) return "";
+    return state.apiBaseUrl.replace(/\/+$/, "") + "/" + String(path || "").replace(/^\/+/, "");
+  }
+
+  function renderMarketSamples(lookup) {
+    var sold = Array.isArray(lookup.soldSample) ? lookup.soldSample : [];
+    var active = Array.isArray(lookup.activeSample) ? lookup.activeSample : [];
+    if (!sold.length && !active.length) {
+      return '<div class="market-samples empty">Live eBay samples will appear here after the backend is connected.</div>';
+    }
+    return (
+      '<div class="market-samples">' +
+        renderSampleColumn("Sold", sold) +
+        renderSampleColumn("Active", active) +
+      '</div>'
+    );
+  }
+
+  function renderSampleColumn(label, items) {
+    if (!items.length) {
+      return '<div class="sample-column"><strong>' + escapeHtml(label) + '</strong><span>No sample yet</span></div>';
+    }
+    return (
+      '<div class="sample-column"><strong>' + escapeHtml(label) + '</strong>' +
+        items.slice(0, 3).map(function (item) {
+          return (
+            '<a href="' + escapeAttr(item.url || "#") + '" target="_blank" rel="noopener">' +
+              '<span>' + escapeHtml(money(item.price || 0)) + '</span>' +
+              '<small>' + escapeHtml(item.title || "eBay item") + '</small>' +
+            '</a>'
+          );
+        }).join("") +
+      '</div>'
+    );
+  }
+
+  function hasLiveBackend() {
+    return !STATIC_PAGES_MODE || Boolean(state.apiBaseUrl);
+  }
+
+  function loadApiBaseUrl() {
+    var fromUrl = new URLSearchParams(window.location.search).get("api");
+    if (fromUrl) {
+      localStorage.setItem(API_BASE_KEY, fromUrl.trim());
+      return fromUrl.trim();
+    }
+    return localStorage.getItem(API_BASE_KEY) || "";
+  }
+
+  function saveApiBaseUrl() {
+    state.apiBaseUrl = els.apiBaseUrl.value.trim().replace(/\/+$/, "");
+    if (state.apiBaseUrl) {
+      localStorage.setItem(API_BASE_KEY, state.apiBaseUrl);
+    } else {
+      localStorage.removeItem(API_BASE_KEY);
+    }
+    checkBackendStatus();
+  }
+
+  function checkBackendStatus() {
+    els.backendStatus.textContent = hasLiveBackend() ? "eBay data: checking" : "eBay data: needs backend";
+    els.backendStatus.className = "status-pill";
+    api("/api/config")
+      .then(function (config) {
+        els.backendStatus.textContent = config.ebayConfigured ? "eBay data: live" : "eBay data: backend no keys";
+        els.backendStatus.classList.toggle("live", Boolean(config.ebayConfigured));
+        els.backendStatus.classList.toggle("warn", !config.ebayConfigured);
+      })
+      .catch(function () {
+        els.backendStatus.textContent = hasLiveBackend() ? "eBay data: cannot reach" : "eBay data: needs backend";
+        els.backendStatus.classList.add("warn");
+      });
   }
 
   function buildStaticEbayLookup(query) {
@@ -1020,6 +1108,8 @@
       valueBucket: "check manually",
       score: scoreFor({ estimatedPrice: 0, sellThroughRate: null }),
       resaleDecision: "review",
+      activeSample: [],
+      soldSample: [],
       activeUrl: urlForLookup("active", clean),
       soldUrl: urlForLookup("sold", clean)
     };

@@ -22,3 +22,5 @@ services:
         value: EBAY_US
       - key: EBAY_CURRENCY
         value: USD
+      - key: ALLOWED_ORIGINS
+        value: https://legoretro.github.io

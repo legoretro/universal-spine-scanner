@@ -26,6 +26,7 @@ Add these hosting environment variables:
 - `EBAY_CLIENT_SECRET`
 - `EBAY_MARKETPLACE_ID=EBAY_US`
 - `EBAY_CURRENCY=USD`
+- `ALLOWED_ORIGINS=https://legoretro.github.io`
 
 Important:
 
@@ -33,6 +34,14 @@ Important:
 - Hosting stores secrets.
 - Supabase stores scanned item rows.
 - The phone browser never sees your private eBay or Supabase keys.
+
+Using GitHub Pages plus a backend:
+
+1. Deploy this repo as a Node web service.
+2. Copy the backend URL, for example `https://your-app.onrender.com`.
+3. Open the GitHub Pages scanner.
+4. Paste that URL into `Live eBay backend URL`.
+5. Tap `Save live data URL`.
 
 Sold-listing data:
 

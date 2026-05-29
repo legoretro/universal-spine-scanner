@@ -27,8 +27,19 @@ const contentTypes = {
 };
 
 function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...corsHeaders()
+  });
   res.end(JSON.stringify(body));
+}
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": config.allowedOrigins || "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type"
+  };
 }
 
 function readJson(req) {
@@ -140,6 +151,11 @@ async function serveFile(res, urlPath) {
 
 async function handleRequest(req, res) {
   try {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, corsHeaders());
+      res.end();
+      return;
+    }
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (url.pathname.startsWith("/api/")) {
       await handleApi(req, res, url);

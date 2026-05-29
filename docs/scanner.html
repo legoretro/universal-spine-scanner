@@ -17,7 +17,10 @@
           <p class="eyebrow">Universal Spine Scanner</p>
           <h1>Scan resale titles</h1>
         </div>
-        <a class="ghost-link" href="#scanList">Saved list</a>
+        <div class="topbar-actions">
+          <span id="backendStatus" class="status-pill">eBay data: checking</span>
+          <a class="ghost-link" href="#scanList">Saved list</a>
+        </div>
       </header>
 
       <main class="scanner-main">
@@ -102,6 +105,13 @@
                 <input id="stackCount" type="number" min="1" max="40" placeholder="Example: 16">
               </label>
               <button id="scanStack" class="primary-button" type="button">Scan stack now</button>
+            </div>
+            <div class="backend-panel">
+              <label class="field">
+                <span>Live eBay backend URL</span>
+                <input id="apiBaseUrl" type="url" placeholder="https://your-backend-url.onrender.com">
+              </label>
+              <button id="saveApiBase" class="tiny-button" type="button">Save live data URL</button>
             </div>
             <p id="liveLookupStatus" class="status-line">No live stack scan yet.</p>
             <div id="liveResults" class="live-results"></div>

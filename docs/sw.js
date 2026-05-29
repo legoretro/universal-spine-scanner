@@ -1,4 +1,4 @@
-const CACHE_NAME = "universal-spine-scanner-v2";
+const CACHE_NAME = "universal-spine-scanner-v5";
 const CORE_ASSETS = [
   "./",
   "./scanner.html",
@@ -31,12 +31,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   event.respondWith(
-    caches.match(event.request).then((cached) => (
-      cached || fetch(event.request).then((response) => {
+    fetch(event.request).then((response) => {
+      if (response && response.ok) {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      })
-    ))
+      }
+      return response;
+    }).catch(() => caches.match(event.request))
   );
 });

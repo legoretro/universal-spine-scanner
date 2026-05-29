@@ -33,6 +33,7 @@ function getConfig(rootDir) {
     ebayClientSecret: value(fileEnv, "EBAY_CLIENT_SECRET"),
     ebayMarketplaceId: value(fileEnv, "EBAY_MARKETPLACE_ID", "EBAY_US"),
     ebayCurrency: value(fileEnv, "EBAY_CURRENCY", "USD"),
+    allowedOrigins: value(fileEnv, "ALLOWED_ORIGINS", "*"),
     ebayApiBaseUrl: "https://api.ebay.com"
   };
 
