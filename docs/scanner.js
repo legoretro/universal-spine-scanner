@@ -455,7 +455,7 @@
         renderLiveResults(results);
       }
       setProgress(1);
-      setLiveStatus(hasLiveBackend() ? "Done. eBay data loaded into the cards." : "Done. Add the live backend URL to load eBay STR inside the cards.");
+      setLiveStatus(hasLiveBackend() ? "Done. eBay data loaded into the cards." : "Add the live backend URL to load eBay STR and seller memory inside the cards.");
       setStatus("Live lookup list is ready.");
     } catch (error) {
       setLiveStatus("Stack scan stopped: " + error.message);
@@ -626,7 +626,7 @@
       var score = scoreFor(lookup);
       var price = lookup.estimatedPrice ? money(lookup.estimatedPrice) : "add data";
       var bucket = lookup.valueBucket || "check manually";
-      var memory = result.memory || findMemoryMatch(result.title);
+      var memory = sellerMemoryFor(result);
       return (
         '<article class="live-result-row score-' + escapeAttr(score.color) + '">' +
           '<span class="live-number">' + (index + 1) + '</span>' +
@@ -638,12 +638,8 @@
             '<label>Price<input data-live-price="' + index + '" type="number" min="0" step="0.01" inputmode="decimal" value="' + escapeAttr(lookup.estimatedPrice || "") + '"></label>' +
           '</div>' +
           '<span class="live-bucket">' + escapeHtml(bucket) + " - " + escapeHtml(price) + " - STR " + escapeHtml(formatRate(lookup.sellThroughRate)) + " - " + escapeHtml(score.reason) + '</span>' +
-          '<span class="memory-line">' + escapeHtml(memoryText(memory)) + '</span>' +
+          '<span class="memory-line">' + escapeHtml(memory) + '</span>' +
           renderMarketSamples(lookup) +
-          '<button class="tiny-button" type="button" data-live-action="active" data-index="' + index + '">eBay active</button>' +
-          '<button class="tiny-button" type="button" data-live-action="sold" data-index="' + index + '">eBay sold</button>' +
-          '<button class="tiny-button" type="button" data-live-action="google" data-index="' + index + '">Google</button>' +
-          '<button class="tiny-button" type="button" data-live-action="remember" data-index="' + index + '">Remember</button>' +
         '</article>'
       );
     }).join("");
@@ -656,10 +652,6 @@
     var input = els.liveResults.querySelector('[data-live-title="' + index + '"]');
     var title = cleanTitle(input && input.value || "");
     if (!title) return;
-    if (button.getAttribute("data-live-action") === "remember") {
-      rememberLiveItem(index, title);
-      return;
-    }
     window.open(urlForLookup(button.getAttribute("data-live-action"), title), "_blank", "noopener");
   }
 
@@ -681,41 +673,6 @@
     if (bucket) {
       bucket.textContent = bucketForPrice(price) + " - " + money(price) + " - STR " + formatRate(rate) + " - " + score.reason;
     }
-  }
-
-  function rememberLiveItem(index, title) {
-    var input = els.liveResults.querySelector('[data-live-title="' + index + '"]');
-    var card = input && input.closest(".live-result-row");
-    var sold = card ? moneyNumber((card.querySelector("[data-live-sold]") || {}).value) : 0;
-    var active = card ? moneyNumber((card.querySelector("[data-live-active]") || {}).value) : 0;
-    var price = card ? moneyNumber((card.querySelector("[data-live-price]") || {}).value) : 0;
-    var rate = calculateStr({ soldCount: sold, activeCount: active });
-    var score = scoreFor({ estimatedPrice: price, sellThroughRate: rate });
-    state.scans.unshift({
-      id: cryptoId(),
-      title: title,
-      itemType: state.itemType,
-      subtitle: "",
-      barcode: "",
-      condition: "used",
-      sealed: "unknown",
-      notes: "Remembered from live stack scan",
-      imageName: state.currentFileName,
-      lookupStatus: "live stack memory",
-      decision: score.decision,
-      estimatedPrice: price,
-      sellThroughRate: rate,
-      activeCount: active,
-      soldCount: sold,
-      valueBucket: bucketForPrice(price),
-      score: score,
-      ocrRaw: "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    persistLocalScans();
-    renderList();
-    setLiveStatus("Remembered " + title + ".");
   }
 
   function setLiveStatus(message) {
@@ -1040,6 +997,20 @@
     );
   }
 
+  function sellerMemoryFor(result) {
+    var lookup = result && result.lookup || {};
+    var seller = lookup.sellerMemory || lookup.myHistory || null;
+    if (seller && seller.found) {
+      var pieces = ["My eBay memory: sold/listed before"];
+      if (seller.soldDate) pieces.push(shortDate(seller.soldDate));
+      if (seller.soldPrice) pieces.push("sold " + money(seller.soldPrice));
+      if (seller.listedPrice) pieces.push("listed " + money(seller.listedPrice));
+      return pieces.join(" - ");
+    }
+    if (!hasLiveBackend()) return "My eBay memory: connect backend + seller OAuth";
+    return "My eBay memory: seller history not connected yet";
+  }
+
   function renderSampleColumn(label, items) {
     if (!items.length) {
       return '<div class="sample-column"><strong>' + escapeHtml(label) + '</strong><span>No sample yet</span></div>';
@@ -1082,16 +1053,16 @@
   }
 
   function checkBackendStatus() {
-    els.backendStatus.textContent = hasLiveBackend() ? "eBay data: checking" : "eBay data: needs backend";
+    els.backendStatus.textContent = hasLiveBackend() ? "eBay: check" : "eBay: setup";
     els.backendStatus.className = "status-pill";
     api("/api/config")
       .then(function (config) {
-        els.backendStatus.textContent = config.ebayConfigured ? "eBay data: live" : "eBay data: backend no keys";
+        els.backendStatus.textContent = config.ebayConfigured ? "eBay: live" : "eBay: keys";
         els.backendStatus.classList.toggle("live", Boolean(config.ebayConfigured));
         els.backendStatus.classList.toggle("warn", !config.ebayConfigured);
       })
       .catch(function () {
-        els.backendStatus.textContent = hasLiveBackend() ? "eBay data: cannot reach" : "eBay data: needs backend";
+        els.backendStatus.textContent = hasLiveBackend() ? "eBay: offline" : "eBay: setup";
         els.backendStatus.classList.add("warn");
       });
   }

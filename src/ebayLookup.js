@@ -52,6 +52,10 @@ class EbayLookup {
       resaleDecision: resaleDecision({ estimatedPrice, sellThroughRate, soldCount }),
       activeSample: summarizeLookupItems(activeItems),
       soldSample: summarizeLookupItems(soldItems),
+      sellerMemory: {
+        found: false,
+        reason: "Seller OAuth history is not connected yet."
+      },
       warnings,
       note: "Lookup runs through the backend. No private eBay keys are sent to the browser."
     };

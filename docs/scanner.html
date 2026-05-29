@@ -18,8 +18,7 @@
           <h1>Scan resale titles</h1>
         </div>
         <div class="topbar-actions">
-          <span id="backendStatus" class="status-pill">eBay data: checking</span>
-          <a class="ghost-link" href="#scanList">Saved list</a>
+          <span id="backendStatus" class="status-pill">eBay: check</span>
         </div>
       </header>
 
@@ -28,8 +27,8 @@
           <div class="step-row">
             <span class="step-pill">1</span>
             <div>
-              <h2>Choose item type</h2>
-              <p>Leave it broad if you are scanning mixed shelves.</p>
+              <h2>What are you scanning?</h2>
+              <p>Pick broad type, then take or upload one photo.</p>
             </div>
           </div>
           <div class="type-grid" id="itemTypeButtons">
@@ -46,8 +45,8 @@
           <div class="step-row">
             <span class="step-pill">2</span>
             <div>
-              <h2>Take or upload spine photos</h2>
-              <p>Multiple photos become a quick batch queue.</p>
+              <h2>Photo</h2>
+              <p>Use one photo with multiple visible spines.</p>
             </div>
           </div>
           <div class="camera-actions">
@@ -76,35 +75,38 @@
             <div id="emptyCanvas" class="empty-canvas">Take a photo of the spine first</div>
           </div>
 
-          <div class="tool-grid">
-            <button id="rotateLeft" class="tool-button" type="button">Rotate left</button>
-            <button id="rotateRight" class="tool-button" type="button">Rotate right</button>
-            <button id="contrastButton" class="tool-button" type="button">Boost contrast</button>
-            <button id="fullCrop" class="tool-button" type="button">Full image</button>
-            <button id="cropLeft" class="tool-button" type="button">Crop left</button>
-            <button id="cropCenter" class="tool-button" type="button">Crop center</button>
-            <button id="cropRight" class="tool-button" type="button">Crop right</button>
-          </div>
+          <details class="advanced-panel">
+            <summary>Image fixes</summary>
+            <div class="tool-grid">
+              <button id="rotateLeft" class="tool-button" type="button">Rotate left</button>
+              <button id="rotateRight" class="tool-button" type="button">Rotate right</button>
+              <button id="contrastButton" class="tool-button" type="button">Boost contrast</button>
+              <button id="fullCrop" class="tool-button" type="button">Full image</button>
+              <button id="cropLeft" class="tool-button" type="button">Crop left</button>
+              <button id="cropCenter" class="tool-button" type="button">Crop center</button>
+              <button id="cropRight" class="tool-button" type="button">Crop right</button>
+            </div>
 
-          <div class="ocr-actions">
-            <button id="scanHorizontal" class="primary-button" type="button">Scan horizontal text</button>
-            <button id="scanVertical" class="primary-button alt" type="button">Scan vertical text</button>
-          </div>
+            <div class="ocr-actions">
+              <button id="scanHorizontal" class="primary-button" type="button">Scan horizontal text</button>
+              <button id="scanVertical" class="primary-button alt" type="button">Scan vertical text</button>
+            </div>
+          </details>
           <progress id="ocrProgress" value="0" max="1"></progress>
-          <p id="ocrStatus" class="status-line">OCR waits here until you scan.</p>
+          <p id="ocrStatus" class="status-line">Ready for photo scan.</p>
 
           <div class="live-stack-panel">
             <div>
               <p class="eyebrow">Live stack lookup</p>
-              <h2>Scan every spine in this photo</h2>
-              <p>Use this for one photo with many VHS, DVD, book, game, or CD spines. Type the item count for best row splitting.</p>
+              <h2>Automatic results</h2>
+              <p>Type item count if you know it. Results will list here with price, STR, color, and seller memory once connected.</p>
             </div>
             <div class="stack-controls">
               <label class="field">
                 <span>How many items in photo?</span>
                 <input id="stackCount" type="number" min="1" max="40" placeholder="Example: 16">
               </label>
-              <button id="scanStack" class="primary-button" type="button">Scan stack now</button>
+              <button id="scanStack" class="primary-button" type="button">Scan and value now</button>
             </div>
             <div class="backend-panel">
               <label class="field">
@@ -118,7 +120,7 @@
           </div>
         </section>
 
-        <section class="scan-card confirm-card">
+        <section class="scan-card confirm-card app-hidden" aria-hidden="true">
           <div class="step-row">
             <span class="step-pill">3</span>
             <div>
@@ -189,7 +191,7 @@
           </div>
         </section>
 
-        <section class="scan-card lookup-card">
+        <section class="scan-card lookup-card app-hidden" aria-hidden="true">
           <div class="section-title-row">
             <div>
               <p class="eyebrow">Lookup</p>
@@ -212,7 +214,7 @@
           </div>
         </section>
 
-        <section class="scan-card list-card">
+        <section class="scan-card list-card app-hidden" aria-hidden="true">
           <div class="section-title-row">
             <div>
               <p class="eyebrow">Saved</p>
