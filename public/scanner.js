@@ -449,6 +449,32 @@
     return best;
   }
 
+  async function lookupBandImage(band) {
+    if (!hasLiveBackend()) return null;
+    var image = imagePayloadForLookup(band);
+    if (!image) return null;
+    return api("/api/lookup-ebay-image", {
+      method: "POST",
+      body: JSON.stringify({
+        image: image,
+        itemType: state.itemType
+      })
+    });
+  }
+
+  function imagePayloadForLookup(source) {
+    var maxWidth = 900;
+    var scale = Math.min(1, maxWidth / Math.max(source.width, 1));
+    var canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(source.width * scale));
+    canvas.height = Math.max(1, Math.round(source.height * scale));
+    var ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.76).replace(/^data:image\/jpeg;base64,/, "");
+  }
+
   function makeSpineOcrVariants(source) {
     var variants = [
       { name: "wide", xStart: 0.04, xEnd: 0.96, threshold: false, priority: 2 },
@@ -532,12 +558,19 @@
         setLiveStatus("Scanning spine " + (index + 1) + " of " + bands.length + "...");
         var ocr = await readSpineBand(band, index, bands.length);
         var title = ocr.title || "Unclear spine " + (index + 1);
+        var imageLookup = await lookupBandImage(band).catch(function () {
+          return null;
+        });
+        if (imageLookup && imageLookup.suggestedTitle && shouldUseSuggestedTitle(title, imageLookup.suggestedTitle)) {
+          title = cleanSpineCandidate(imageLookup.suggestedTitle);
+          ocr.quality = Math.max(ocr.quality, titleQuality(title));
+        }
         var lookup = shouldLookupTitle(title)
           ? await api("/api/lookup-ebay?title=" + encodeURIComponent(title) + "&itemType=" + encodeURIComponent(state.itemType))
             .catch(function () {
-              return buildStaticEbayLookup(title);
+              return imageLookup || buildStaticEbayLookup(title);
             })
-          : buildNoLookup(title, "OCR was not clear enough to search eBay yet.");
+          : (imageLookup && imageLookup.suggestedTitle ? imageLookup : buildNoLookup(title, "OCR and visual match were not clear enough yet."));
         lookup = enrichLookup(lookup);
         if (lookup.suggestedTitle && shouldUseSuggestedTitle(title, lookup.suggestedTitle)) {
           title = cleanSpineCandidate(lookup.suggestedTitle);
@@ -547,6 +580,7 @@
           id: cryptoId(),
           title: title,
           rawText: ocr.rawText,
+          imageMatched: Boolean(imageLookup && imageLookup.suggestedTitle),
           quality: ocr.quality,
           confidence: ocr.confidence,
           needsRescan: !shouldLookupTitle(title),
@@ -822,7 +856,7 @@
           '<span class="live-number">' + (index + 1) + '</span>' +
           '<input class="live-title-input" data-live-title="' + index + '" value="' + escapeAttr(result.title) + '">' +
           '<span class="score-pill">' + escapeHtml(score.label) + '</span>' +
-          '<span class="scan-quality">OCR ' + Math.round(Number(result.quality || 0) * 100) + '%</span>' +
+          '<span class="scan-quality">' + (result.imageMatched ? "visual match + " : "") + 'OCR ' + Math.round(Number(result.quality || 0) * 100) + '%</span>' +
           '<div class="live-score-grid">' +
             '<label>Sold<input data-live-sold="' + index + '" type="number" min="0" inputmode="numeric" value="' + escapeAttr(lookup.soldCount || "") + '"></label>' +
             '<label>Active<input data-live-active="' + index + '" type="number" min="0" inputmode="numeric" value="' + escapeAttr(lookup.activeCount || "") + '"></label>' +

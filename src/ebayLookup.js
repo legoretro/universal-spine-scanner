@@ -80,6 +80,65 @@ class EbayLookup {
     };
   }
 
+  async lookupImage(input) {
+    const image = cleanImagePayload(input.image || "");
+    const itemType = cleanLookupQuery(input.itemType || input.type || "");
+    const categoryIds = categoryIdsForItemType(itemType);
+    const warnings = [];
+    if (!image) {
+      return {
+        source: "image_missing",
+        itemType,
+        categoryIds,
+        activeCount: 0,
+        estimatedPrice: 0,
+        suggestedTitle: "",
+        activeSample: [],
+        warnings: ["No image was sent for visual lookup."]
+      };
+    }
+    if (!this.config.ebayConfigured) {
+      return {
+        source: "image_unconfigured",
+        itemType,
+        categoryIds,
+        activeCount: 0,
+        estimatedPrice: 0,
+        suggestedTitle: "",
+        activeSample: [],
+        warnings: ["eBay API keys are not configured on the backend yet."]
+      };
+    }
+    let activeItems = [];
+    let activeTotal = 0;
+    try {
+      const active = await this.searchByImage(image, categoryIds);
+      activeItems = active.items;
+      activeTotal = active.total;
+    } catch (error) {
+      warnings.push(`Image lookup: ${error.message}`);
+    }
+    const activePrices = activeItems.map(itemPrice).filter((price) => price > 0);
+    const suggestedTitle = cleanSuggestedTitle(activeItems[0] && activeItems[0].title || "");
+    return {
+      source: activeItems.length ? "ebay_image_search" : "image_no_match",
+      itemType,
+      categoryIds,
+      activeCount: activeTotal || activeItems.length,
+      soldCount: 0,
+      sellThroughRate: null,
+      estimatedPrice: median(activePrices),
+      valueBucket: valueBucket(median(activePrices)),
+      score: valueScore({ estimatedPrice: median(activePrices), sellThroughRate: null }),
+      resaleDecision: "review",
+      suggestedTitle,
+      activeSample: summarizeLookupItems(activeItems),
+      soldSample: [],
+      warnings,
+      note: "Visual lookup uses eBay Browse search_by_image through the backend."
+    };
+  }
+
   async searchActiveListings(query, categoryIds) {
     const token = await this.getAppToken("https://api.ebay.com/oauth/api_scope");
     const url = new URL(`${this.config.ebayApiBaseUrl}/buy/browse/v1/item_summary/search`);
@@ -153,6 +212,25 @@ class EbayLookup {
     };
   }
 
+  async searchByImage(base64Image, categoryIds) {
+    const token = await this.getAppToken("https://api.ebay.com/oauth/api_scope");
+    const url = new URL(`${this.config.ebayApiBaseUrl}/buy/browse/v1/item_summary/search_by_image`);
+    url.searchParams.set("limit", "12");
+    if (categoryIds) {
+      url.searchParams.set("category_ids", String(categoryIds).split(",")[0]);
+    }
+    const payload = await ebayJson(url.toString(), {
+      method: "POST",
+      accessToken: token,
+      marketplaceId: this.config.ebayMarketplaceId,
+      body: JSON.stringify({ image: base64Image })
+    });
+    return {
+      items: payload.itemSummaries || [],
+      total: Number(payload.total || 0)
+    };
+  }
+
   async getAppToken(scope) {
     const cached = this.tokens[scope];
     if (cached && cached.expiresAt > Date.now() + 60000) {
@@ -187,11 +265,13 @@ class EbayLookup {
 
 async function ebayJson(url, options) {
   const response = await fetch(url, {
+    method: options.method || "GET",
     headers: {
       Authorization: `Bearer ${options.accessToken}`,
       "Content-Type": "application/json",
       "X-EBAY-C-MARKETPLACE-ID": options.marketplaceId
-    }
+    },
+    body: options.body
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -309,6 +389,13 @@ function roundMoney(value) {
 
 function cleanLookupQuery(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+function cleanImagePayload(value) {
+  return String(value || "")
+    .replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "")
+    .replace(/\s+/g, "")
+    .trim();
 }
 
 function marketplaceToGlobalId(marketplaceId) {

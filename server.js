@@ -89,6 +89,12 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (method === "POST" && pathname === "/api/lookup-ebay-image") {
+    const input = await readJson(req);
+    sendJson(res, 200, await ebayLookup.lookupImage(input));
+    return;
+  }
+
   if ((method === "GET" || method === "POST") && pathname === "/api/lookup-books") {
     const input = method === "POST" ? await readJson(req) : Object.fromEntries(url.searchParams.entries());
     sendJson(res, 200, await buildBookLookup(input));
