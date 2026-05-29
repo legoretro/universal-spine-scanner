@@ -1,6 +1,12 @@
 # Universal Spine Scanner
 
-This is the hosted phone scanner app only. It is separate from the local eBay listing/publishing studio.
+This is the phone scanner app only. It is separate from the local eBay listing/publishing studio.
+
+GitHub Pages practice URL after Pages is enabled from the `/docs` folder:
+- `https://legoretro.github.io/universal-spine-scanner/`
+
+Practice mode can scan photos, run OCR, save on the phone, export CSV, and open eBay/Google/Amazon search links.
+Exact eBay value math and Supabase syncing need backend hosting later because private keys cannot go inside GitHub Pages.
 
 What stays private:
 - eBay keys stay in `.env` locally or hosting environment variables.
