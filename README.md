@@ -8,6 +8,11 @@ GitHub Pages practice URL after Pages is enabled from the `/docs` folder:
 Practice mode can scan photos, run OCR, save on the phone, export CSV, and open eBay/Google/Amazon search links.
 Exact eBay value math and Supabase syncing need backend hosting later because private keys cannot go inside GitHub Pages.
 
+Live stack mode:
+- Upload one photo with many visible spines.
+- Tap "Scan stack now."
+- It OCRs each row and shows eBay active/sold lookup buttons without saving the items.
+
 What stays private:
 - eBay keys stay in `.env` locally or hosting environment variables.
 - Supabase service role key stays in `.env` locally or hosting environment variables.

@@ -89,6 +89,23 @@
           </div>
           <progress id="ocrProgress" value="0" max="1"></progress>
           <p id="ocrStatus" class="status-line">OCR waits here until you scan.</p>
+
+          <div class="live-stack-panel">
+            <div>
+              <p class="eyebrow">Live stack lookup</p>
+              <h2>Scan every spine in this photo</h2>
+              <p>Use this for one photo with many VHS, DVD, book, game, or CD spines. It looks them up now and does not save them.</p>
+            </div>
+            <div class="stack-controls">
+              <label class="field">
+                <span>Item count if auto misses</span>
+                <input id="stackCount" type="number" min="1" max="40" placeholder="Auto">
+              </label>
+              <button id="scanStack" class="primary-button" type="button">Scan stack now</button>
+            </div>
+            <p id="liveLookupStatus" class="status-line">No live stack scan yet.</p>
+            <div id="liveResults" class="live-results"></div>
+          </div>
         </section>
 
         <section class="scan-card confirm-card">

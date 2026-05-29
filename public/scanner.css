@@ -313,6 +313,66 @@ progress {
   margin-top: 0.5rem;
 }
 
+.live-stack-panel {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.live-stack-panel p:not(.eyebrow):not(.status-line) {
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+.stack-controls {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: 1fr;
+}
+
+.live-results {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.live-result-row {
+  align-items: center;
+  background: #252138;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: auto 1fr;
+  padding: 0.65rem;
+}
+
+.live-number {
+  align-items: center;
+  background: rgba(182, 154, 244, 0.18);
+  border-radius: 999px;
+  color: var(--soft);
+  display: inline-flex;
+  font-size: 0.8rem;
+  font-weight: 850;
+  height: 1.8rem;
+  justify-content: center;
+  width: 1.8rem;
+}
+
+.live-title-input {
+  min-height: 42px;
+  padding: 0.55rem 0.65rem;
+}
+
+.live-bucket {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 760;
+  grid-column: 1 / -1;
+}
+
 .field {
   display: grid;
   gap: 0.35rem;

@@ -36,6 +36,10 @@
     cropRight: document.getElementById("cropRight"),
     scanHorizontal: document.getElementById("scanHorizontal"),
     scanVertical: document.getElementById("scanVertical"),
+    scanStack: document.getElementById("scanStack"),
+    stackCount: document.getElementById("stackCount"),
+    liveLookupStatus: document.getElementById("liveLookupStatus"),
+    liveResults: document.getElementById("liveResults"),
     ocrProgress: document.getElementById("ocrProgress"),
     ocrStatus: document.getElementById("ocrStatus"),
     cleanTitle: document.getElementById("cleanTitle"),
@@ -135,6 +139,8 @@
     els.scanVertical.addEventListener("click", function () {
       runOcr("vertical");
     });
+    els.scanStack.addEventListener("click", runStackScan);
+    els.liveResults.addEventListener("click", handleLiveResultClick);
 
     els.saveScan.addEventListener("click", saveCurrentScan);
     els.nextPhoto.addEventListener("click", moveNext);
@@ -392,6 +398,228 @@
   function disableOcr(disabled) {
     els.scanHorizontal.disabled = disabled;
     els.scanVertical.disabled = disabled;
+    els.scanStack.disabled = disabled;
+  }
+
+  async function runStackScan() {
+    if (!state.currentImage) {
+      setStatus("Take or choose a stack photo first.");
+      return;
+    }
+    if (!window.Tesseract) {
+      setStatus("OCR library did not load. Check your internet connection once, then try again.");
+      return;
+    }
+    var base = makeProcessedCanvas();
+    var typedCount = Number(els.stackCount.value || 0);
+    var bands = typedCount > 0 ? equalBands(base, typedCount) : detectHorizontalBands(base);
+    if (bands.length < 2) {
+      bands = equalBands(base, 8);
+    }
+    els.liveResults.innerHTML = "";
+    setLiveStatus("Found " + bands.length + " possible spine rows. Scanning now...");
+    setStatus("Live stack scan running. This can take a minute.");
+    setProgress(0.02);
+    disableOcr(true);
+    try {
+      var results = [];
+      for (var index = 0; index < bands.length; index += 1) {
+        var band = cropBandCanvas(base, bands[index]);
+        boostContrast(band);
+        setLiveStatus("Scanning spine " + (index + 1) + " of " + bands.length + "...");
+        var result = await window.Tesseract.recognize(band, "eng", {
+          logger: function (message) {
+            if (message.status === "recognizing text") {
+              setProgress((index + Math.max(0.05, message.progress || 0)) / bands.length);
+            }
+          }
+        });
+        var rawText = result && result.data && result.data.text || "";
+        var title = bestSpineTitle(rawText) || "Unclear spine " + (index + 1);
+        var lookup = await api("/api/lookup-ebay?title=" + encodeURIComponent(title))
+          .catch(function () {
+            return buildStaticEbayLookup(title);
+          });
+        results.push({ title: title, rawText: rawText, lookup: lookup });
+        renderLiveResults(results);
+      }
+      setProgress(1);
+      setLiveStatus("Done. Edit any title, then tap eBay active or sold.");
+      setStatus("Live lookup list is ready.");
+    } catch (error) {
+      setLiveStatus("Stack scan stopped: " + error.message);
+      setStatus("Try typing the item count, cropping tighter, or rotating the image.");
+    } finally {
+      disableOcr(false);
+    }
+  }
+
+  function equalBands(source, count) {
+    var safeCount = Math.max(1, Math.min(40, Number(count || 1)));
+    var height = source.height;
+    var rowHeight = height / safeCount;
+    var bands = [];
+    for (var index = 0; index < safeCount; index += 1) {
+      bands.push({
+        start: Math.max(0, Math.round(index * rowHeight)),
+        end: Math.min(height, Math.round((index + 1) * rowHeight))
+      });
+    }
+    return bands;
+  }
+
+  function detectHorizontalBands(source) {
+    var scale = Math.min(1, 420 / source.width);
+    var width = Math.max(80, Math.round(source.width * scale));
+    var height = Math.max(80, Math.round(source.height * scale));
+    var canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext("2d");
+    ctx.drawImage(source, 0, 0, width, height);
+    var data = ctx.getImageData(0, 0, width, height).data;
+    var scores = new Array(height).fill(0);
+    var left = Math.floor(width * 0.08);
+    var right = Math.floor(width * 0.92);
+    for (var y = 1; y < height; y += 1) {
+      var sum = 0;
+      var samples = 0;
+      for (var x = left; x < right; x += 3) {
+        var current = (y * width + x) * 4;
+        var previous = ((y - 1) * width + x) * 4;
+        var lumCurrent = (data[current] + data[current + 1] + data[current + 2]) / 3;
+        var lumPrevious = (data[previous] + data[previous + 1] + data[previous + 2]) / 3;
+        sum += Math.abs(lumCurrent - lumPrevious);
+        samples += 1;
+      }
+      scores[y] = samples ? sum / samples : 0;
+    }
+    var smooth = scores.map(function (_, y) {
+      var sum = 0;
+      var count = 0;
+      for (var offset = -3; offset <= 3; offset += 1) {
+        var row = y + offset;
+        if (row >= 0 && row < height) {
+          sum += scores[row];
+          count += 1;
+        }
+      }
+      return sum / Math.max(1, count);
+    });
+    var mean = smooth.reduce(function (sum, value) { return sum + value; }, 0) / smooth.length;
+    var variance = smooth.reduce(function (sum, value) { return sum + Math.pow(value - mean, 2); }, 0) / smooth.length;
+    var threshold = mean + Math.sqrt(variance) * 0.85;
+    var minGap = Math.max(8, Math.floor(height / 45));
+    var peaks = [];
+    for (var rowIndex = 2; rowIndex < height - 2; rowIndex += 1) {
+      if (smooth[rowIndex] < threshold) continue;
+      if (smooth[rowIndex] < smooth[rowIndex - 1] || smooth[rowIndex] < smooth[rowIndex + 1]) continue;
+      var last = peaks[peaks.length - 1];
+      if (!last || rowIndex - last.row > minGap) {
+        peaks.push({ row: rowIndex, score: smooth[rowIndex] });
+      } else if (smooth[rowIndex] > last.score) {
+        last.row = rowIndex;
+        last.score = smooth[rowIndex];
+      }
+    }
+    var boundaries = [0].concat(peaks.map(function (peak) {
+      return Math.round(peak.row / scale);
+    })).concat([source.height]).sort(function (a, b) { return a - b; });
+    var merged = [];
+    var originalMinGap = Math.max(18, Math.floor(source.height / 70));
+    boundaries.forEach(function (boundary) {
+      var previous = merged[merged.length - 1];
+      if (previous === undefined || boundary - previous > originalMinGap) {
+        merged.push(boundary);
+      }
+    });
+    if (merged[merged.length - 1] !== source.height) {
+      merged.push(source.height);
+    }
+    var bands = [];
+    var minBandHeight = Math.max(30, Math.floor(source.height / 45));
+    for (var index = 0; index < merged.length - 1; index += 1) {
+      if (merged[index + 1] - merged[index] >= minBandHeight) {
+        bands.push({ start: merged[index], end: merged[index + 1] });
+      }
+    }
+    if (bands.length > 30 || bands.length < 3) {
+      return [];
+    }
+    return bands;
+  }
+
+  function cropBandCanvas(source, band) {
+    var padding = Math.max(4, Math.floor((band.end - band.start) * 0.08));
+    var y = Math.max(0, band.start - padding);
+    var height = Math.min(source.height - y, band.end - band.start + padding * 2);
+    var canvas = document.createElement("canvas");
+    canvas.width = source.width;
+    canvas.height = Math.max(1, height);
+    canvas.getContext("2d").drawImage(source, 0, y, source.width, height, 0, 0, source.width, height);
+    return canvas;
+  }
+
+  function bestSpineTitle(text) {
+    var lines = String(text || "")
+      .split(/\n+/)
+      .map(cleanSpineCandidate)
+      .filter(function (line) {
+        return line.length >= 3 && /[a-z]/i.test(line) && !isNoiseLine(line);
+      });
+    var combined = cleanSpineCandidate(lines.join(" "));
+    if (combined.length >= 4) {
+      return combined.slice(0, 100);
+    }
+    return cleanSpineCandidate(text).slice(0, 100);
+  }
+
+  function cleanSpineCandidate(value) {
+    return cleanTitle(value)
+      .replace(/\b(walt disney|disney|home video|family feature|hi[- ]?fi|stereo|closed captioned|vhs|dvd|blu[- ]?ray)\b/gi, " ")
+      .replace(/\b(isbn|upc|rated|minutes?|mins?|color|clamshell)\b/gi, " ")
+      .replace(/\b\d{4,}\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function isNoiseLine(value) {
+    return /^(vhs|dvd|blu ray|hi fi|stereo|closed captioned|rated|color|isbn|upc)$/i.test(value.trim());
+  }
+
+  function renderLiveResults(results) {
+    if (!results.length) {
+      els.liveResults.innerHTML = "";
+      return;
+    }
+    els.liveResults.innerHTML = results.map(function (result, index) {
+      var price = result.lookup && result.lookup.estimatedPrice ? money(result.lookup.estimatedPrice) : "lookup";
+      var bucket = result.lookup && result.lookup.valueBucket || "check manually";
+      return (
+        '<article class="live-result-row">' +
+          '<span class="live-number">' + (index + 1) + '</span>' +
+          '<input class="live-title-input" data-live-title="' + index + '" value="' + escapeAttr(result.title) + '">' +
+          '<span class="live-bucket">' + escapeHtml(bucket) + (price === "lookup" ? "" : " - " + escapeHtml(price)) + '</span>' +
+          '<button class="tiny-button" type="button" data-live-action="active" data-index="' + index + '">eBay active</button>' +
+          '<button class="tiny-button" type="button" data-live-action="sold" data-index="' + index + '">eBay sold</button>' +
+          '<button class="tiny-button" type="button" data-live-action="google" data-index="' + index + '">Google</button>' +
+        '</article>'
+      );
+    }).join("");
+  }
+
+  function handleLiveResultClick(event) {
+    var button = event.target.closest("[data-live-action]");
+    if (!button) return;
+    var index = button.getAttribute("data-index");
+    var input = els.liveResults.querySelector('[data-live-title="' + index + '"]');
+    var title = cleanTitle(input && input.value || "");
+    if (!title) return;
+    window.open(urlForLookup(button.getAttribute("data-live-action"), title), "_blank", "noopener");
+  }
+
+  function setLiveStatus(message) {
+    els.liveLookupStatus.textContent = message;
   }
 
   function cleanTitle(text) {
@@ -535,11 +763,22 @@
       return;
     }
     var urls = {
-      google: "https://www.google.com/search?q=" + encodeURIComponent(query + " resale value"),
+      google: urlForLookup("google", query + " resale value"),
       amazon: "https://www.amazon.com/s?k=" + encodeURIComponent(barcode || query),
-      manual: "https://www.google.com/search?q=" + encodeURIComponent(query)
+      manual: urlForLookup("google", query)
     };
     window.open(urls[type], "_blank", "noopener");
+  }
+
+  function urlForLookup(type, title) {
+    var clean = cleanTitle(title);
+    if (type === "active") {
+      return "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(clean);
+    }
+    if (type === "sold") {
+      return "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(clean) + "&LH_Sold=1&LH_Complete=1";
+    }
+    return "https://www.google.com/search?q=" + encodeURIComponent(clean);
   }
 
   function selectedListTitle() {
@@ -674,8 +913,8 @@
       sellThroughRate: null,
       valueBucket: "check manually",
       resaleDecision: "review",
-      activeUrl: "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(clean),
-      soldUrl: "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(clean) + "&LH_Sold=1&LH_Complete=1"
+      activeUrl: urlForLookup("active", clean),
+      soldUrl: urlForLookup("sold", clean)
     };
   }
 
@@ -730,6 +969,10 @@
         "'": "&#039;"
       }[char];
     });
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, "&#096;");
   }
 
   function registerServiceWorker() {
