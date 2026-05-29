@@ -94,12 +94,12 @@
             <div>
               <p class="eyebrow">Live stack lookup</p>
               <h2>Scan every spine in this photo</h2>
-              <p>Use this for one photo with many VHS, DVD, book, game, or CD spines. It looks them up now and does not save them.</p>
+              <p>Use this for one photo with many VHS, DVD, book, game, or CD spines. Type the item count for best row splitting.</p>
             </div>
             <div class="stack-controls">
               <label class="field">
-                <span>Item count if auto misses</span>
-                <input id="stackCount" type="number" min="1" max="40" placeholder="Auto">
+                <span>How many items in photo?</span>
+                <input id="stackCount" type="number" min="1" max="40" placeholder="Example: 16">
               </label>
               <button id="scanStack" class="primary-button" type="button">Scan stack now</button>
             </div>
@@ -162,6 +162,14 @@
             <label class="field">
               <span>Notes</span>
               <input id="notes" type="text" placeholder="Damage, edition, missing case">
+            </label>
+            <label class="field">
+              <span>What I paid</span>
+              <input id="paidPrice" type="number" min="0" step="0.01" placeholder="Optional">
+            </label>
+            <label class="field">
+              <span>Sold for</span>
+              <input id="soldPrice" type="number" min="0" step="0.01" placeholder="Optional">
             </label>
           </div>
 

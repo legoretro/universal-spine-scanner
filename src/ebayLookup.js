@@ -48,6 +48,7 @@ class EbayLookup {
       sellThroughRate,
       estimatedPrice,
       valueBucket: valueBucket(estimatedPrice),
+      score: valueScore({ estimatedPrice, sellThroughRate }),
       resaleDecision: resaleDecision({ estimatedPrice, sellThroughRate, soldCount }),
       activeSample: summarizeLookupItems(activeItems),
       soldSample: summarizeLookupItems(soldItems),
@@ -160,12 +161,40 @@ function valueBucket(price) {
 
 function resaleDecision(input) {
   const price = Number(input.estimatedPrice || 0);
-  const rate = Number(input.sellThroughRate || 0);
+  const rawRate = input.sellThroughRate;
+  const rate = rawRate === null || rawRate === undefined ? null : Number(rawRate || 0);
   const soldCount = Number(input.soldCount || 0);
+  const score = valueScore({ estimatedPrice: price, sellThroughRate: rawRate });
+  if (score.color === "gold" || score.color === "green") return "worth listing";
+  if (score.color === "red") return "skip";
   if (price >= 20 && rate >= 35) return "worth listing";
   if (price >= 10 && (rate >= 25 || soldCount >= 3)) return "review";
   if (price > 0 && price < 10) return "skip";
   return "review";
+}
+
+function valueScore(input) {
+  const price = Number(input.estimatedPrice || 0);
+  const rate = input.sellThroughRate === null || input.sellThroughRate === undefined
+    ? null
+    : Number(input.sellThroughRate || 0);
+  if (!price || rate === null) {
+    return {
+      color: "unknown",
+      label: "Needs live data",
+      reason: "Connect backend eBay lookup for STR."
+    };
+  }
+  if (rate >= 70 && price >= 50) {
+    return { color: "gold", label: "Gold", reason: "STR above 70% and value above $50." };
+  }
+  if (rate >= 50 && price >= 20) {
+    return { color: "green", label: "Green", reason: "STR above 50% and value above $20." };
+  }
+  if (rate > 10 && price >= 10) {
+    return { color: "yellow", label: "Yellow", reason: "STR above 10% and value above $10." };
+  }
+  return { color: "red", label: "Red", reason: "STR below 10% or value below $10." };
 }
 
 function roundMoney(value) {
@@ -176,4 +205,4 @@ function cleanLookupQuery(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
-module.exports = { EbayLookup, valueBucket, resaleDecision };
+module.exports = { EbayLookup, valueBucket, resaleDecision, valueScore };

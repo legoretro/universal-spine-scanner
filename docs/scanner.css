@@ -344,8 +344,29 @@ progress {
   border-radius: 0.85rem;
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   padding: 0.65rem;
+}
+
+.score-red {
+  border-color: rgba(239, 141, 150, 0.85);
+}
+
+.score-yellow {
+  border-color: rgba(222, 193, 122, 0.9);
+}
+
+.score-green {
+  border-color: rgba(127, 183, 178, 0.95);
+}
+
+.score-gold {
+  border-color: rgba(244, 203, 111, 1);
+  box-shadow: 0 14px 34px rgba(244, 203, 111, 0.12);
+}
+
+.score-unknown {
+  border-color: rgba(188, 181, 207, 0.45);
 }
 
 .live-number {
@@ -366,9 +387,65 @@ progress {
   padding: 0.55rem 0.65rem;
 }
 
+.score-pill {
+  border-radius: 999px;
+  color: #171523;
+  font-size: 0.76rem;
+  font-weight: 900;
+  justify-self: end;
+  padding: 0.38rem 0.62rem;
+}
+
+.score-red .score-pill {
+  background: #ef8d96;
+}
+
+.score-yellow .score-pill {
+  background: #dec17a;
+}
+
+.score-green .score-pill {
+  background: #7fb7b2;
+}
+
+.score-gold .score-pill {
+  background: #f4cb6f;
+}
+
+.score-unknown .score-pill {
+  background: #bcb5cf;
+}
+
+.live-score-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.live-score-grid label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 0.25rem;
+}
+
+.live-score-grid input {
+  min-height: 38px;
+  padding: 0.48rem 0.55rem;
+}
+
 .live-bucket {
   color: var(--muted);
   font-size: 0.82rem;
+  font-weight: 760;
+  grid-column: 1 / -1;
+}
+
+.memory-line {
+  color: var(--soft);
+  font-size: 0.78rem;
   font-weight: 760;
   grid-column: 1 / -1;
 }

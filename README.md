@@ -12,6 +12,14 @@ Live stack mode:
 - Upload one photo with many visible spines.
 - Tap "Scan stack now."
 - It OCRs each row and shows eBay active/sold lookup buttons without saving the items.
+- Type the item count for best multi-item splitting.
+- Add sold count, active count, and price to calculate STR/color in practice mode.
+
+Score colors:
+- Red: below 10% STR or below $10.
+- Yellow: above 10% STR and above $10.
+- Green: above 50% STR and above $20.
+- Gold: above 70% STR and above $50.
 
 What stays private:
 - eBay keys stay in `.env` locally or hosting environment variables.
