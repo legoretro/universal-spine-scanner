@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#191629">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Spine Scanner">
+    <title>Universal Spine Scanner</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="scanner.css">
+  </head>
+  <body>
+    <div class="scanner-shell">
+      <header class="scanner-topbar">
+        <div>
+          <p class="eyebrow">Universal Spine Scanner</p>
+          <h1>Scan resale titles</h1>
+        </div>
+        <a class="ghost-link" href="#scanList">Saved list</a>
+      </header>
+
+      <main class="scanner-main">
+        <section class="scan-card hero-card">
+          <div class="step-row">
+            <span class="step-pill">1</span>
+            <div>
+              <h2>Choose item type</h2>
+              <p>Leave it broad if you are scanning mixed shelves.</p>
+            </div>
+          </div>
+          <div class="type-grid" id="itemTypeButtons">
+            <button class="type-button active" type="button" data-type="VHS">VHS</button>
+            <button class="type-button" type="button" data-type="DVD">DVD</button>
+            <button class="type-button" type="button" data-type="Book">Book</button>
+            <button class="type-button" type="button" data-type="Game">Game</button>
+            <button class="type-button" type="button" data-type="CD">CD</button>
+            <button class="type-button" type="button" data-type="Other">Other</button>
+          </div>
+        </section>
+
+        <section class="scan-card camera-card">
+          <div class="step-row">
+            <span class="step-pill">2</span>
+            <div>
+              <h2>Take or upload spine photos</h2>
+              <p>Multiple photos become a quick batch queue.</p>
+            </div>
+          </div>
+          <div class="camera-actions">
+            <label class="big-file-button" for="cameraInput">Open phone camera</label>
+            <label class="secondary-file-button" for="batchInput">Choose batch photos</label>
+            <input id="cameraInput" type="file" accept="image/*" capture="environment">
+            <input id="batchInput" type="file" accept="image/*" multiple>
+          </div>
+          <div class="queue-status">
+            <span id="queueText">No photos queued</span>
+            <button id="clearQueue" class="tiny-button" type="button">Clear</button>
+          </div>
+        </section>
+
+        <section class="scan-card editor-card">
+          <div class="editor-header">
+            <div>
+              <p class="eyebrow">OCR Tools</p>
+              <h2 id="currentImageTitle">No image selected</h2>
+            </div>
+            <button id="retakeButton" class="tiny-button" type="button">Retake</button>
+          </div>
+
+          <div class="canvas-wrap">
+            <canvas id="scanCanvas" width="900" height="1200"></canvas>
+            <div id="emptyCanvas" class="empty-canvas">Take a photo of the spine first</div>
+          </div>
+
+          <div class="tool-grid">
+            <button id="rotateLeft" class="tool-button" type="button">Rotate left</button>
+            <button id="rotateRight" class="tool-button" type="button">Rotate right</button>
+            <button id="contrastButton" class="tool-button" type="button">Boost contrast</button>
+            <button id="fullCrop" class="tool-button" type="button">Full image</button>
+            <button id="cropLeft" class="tool-button" type="button">Crop left</button>
+            <button id="cropCenter" class="tool-button" type="button">Crop center</button>
+            <button id="cropRight" class="tool-button" type="button">Crop right</button>
+          </div>
+
+          <div class="ocr-actions">
+            <button id="scanHorizontal" class="primary-button" type="button">Scan horizontal text</button>
+            <button id="scanVertical" class="primary-button alt" type="button">Scan vertical text</button>
+          </div>
+          <progress id="ocrProgress" value="0" max="1"></progress>
+          <p id="ocrStatus" class="status-line">OCR waits here until you scan.</p>
+        </section>
+
+        <section class="scan-card confirm-card">
+          <div class="step-row">
+            <span class="step-pill">3</span>
+            <div>
+              <h2>Confirm title</h2>
+              <p>Fix the OCR before saving. This becomes your lookup list.</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>Clean title</span>
+            <textarea id="cleanTitle" rows="3" placeholder="OCR result will appear here"></textarea>
+          </label>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Subtitle or edition</span>
+              <input id="subtitle" type="text" placeholder="Collector edition, season, volume">
+            </label>
+            <label class="field">
+              <span>Barcode or ISBN</span>
+              <input id="barcode" type="text" inputmode="numeric" placeholder="Optional">
+            </label>
+            <label class="field">
+              <span>Condition</span>
+              <select id="condition">
+                <option value="used">Used</option>
+                <option value="very good">Very Good</option>
+                <option value="good">Good</option>
+                <option value="acceptable">Acceptable</option>
+                <option value="new">New</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Sealed or open</span>
+              <select id="sealed">
+                <option value="open">Open</option>
+                <option value="sealed">Sealed</option>
+                <option value="unknown">Unknown</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Decision</span>
+              <select id="decision">
+                <option value="scanned">Scanned</option>
+                <option value="review">Review</option>
+                <option value="worth listing">Worth listing</option>
+                <option value="skip">Skip</option>
+                <option value="listed">Listed</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Notes</span>
+              <input id="notes" type="text" placeholder="Damage, edition, missing case">
+            </label>
+          </div>
+
+          <div class="save-actions">
+            <button id="saveScan" class="primary-button wide" type="button">Save to lookup list</button>
+            <button id="nextPhoto" class="secondary-button wide" type="button">Next photo</button>
+          </div>
+        </section>
+
+        <section class="scan-card lookup-card">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">Lookup</p>
+              <h2>Search resale value</h2>
+            </div>
+            <button id="exportCsv" class="tiny-button" type="button">Export CSV</button>
+          </div>
+          <button id="valueLookup" class="primary-button value-button" type="button">Check eBay value</button>
+          <div id="valueResult" class="value-result">
+            <strong>No value check yet</strong>
+            <span>Scan or type a title, then check eBay value.</span>
+          </div>
+          <div class="lookup-grid">
+            <button class="lookup-button" type="button" data-lookup="ebay-active">eBay active</button>
+            <button class="lookup-button" type="button" data-lookup="ebay-sold">eBay sold</button>
+            <button class="lookup-button" type="button" data-lookup="google">Google</button>
+            <button class="lookup-button" type="button" data-lookup="amazon">Amazon</button>
+            <button class="lookup-button" type="button" data-lookup="book">ISBN/barcode</button>
+            <button class="lookup-button" type="button" data-lookup="manual">Manual search</button>
+          </div>
+        </section>
+
+        <section class="scan-card list-card">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">Saved</p>
+              <h2>Lookup list</h2>
+            </div>
+            <span id="savedCount" class="count-pill">0 items</span>
+          </div>
+          <div id="bucketBoard" class="bucket-board"></div>
+          <div id="scanList" class="scan-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="scanner.js"></script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "Universal Spine Scanner",
+  "short_name": "Spine Scanner",
+  "description": "Personal thrift and resale spine scanner for quick eBay value lookup.",
+  "start_url": "/scanner.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171523",
+  "theme_color": "#191629",
+  "icons": [
+    {
+      "src": "/scanner-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

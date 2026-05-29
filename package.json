@@ -1,0 +1,14 @@
+{
+  "name": "universal-spine-scanner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mobile-first resale spine scanner with secure backend lookup routes.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node -c server.js && node -c src/config.js && node -c src/ebayLookup.js && node -c src/scanStore.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
