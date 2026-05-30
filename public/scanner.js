@@ -454,7 +454,7 @@
     for (var variantIndex = 0; variantIndex < variants.length; variantIndex += 1) {
       var variant = variants[variantIndex];
       var result = await window.Tesseract.recognize(variant.canvas, "eng", {
-        tessedit_pageseg_mode: "7",
+        tessedit_pageseg_mode: variant.mode || "7",
         preserve_interword_spaces: "1",
         logger: function (message) {
           if (message.status === "recognizing text") {
@@ -484,6 +484,7 @@
 
   async function lookupBandImage(band) {
     if (!hasLiveBackend()) return null;
+    if (isMediaSpineType(state.itemType)) return null;
     var image = imagePayloadForLookup(band);
     if (!image) return null;
     return api("/api/lookup-ebay-image", {
@@ -493,6 +494,10 @@
         itemType: state.itemType
       })
     });
+  }
+
+  function isMediaSpineType(itemType) {
+    return /^(vhs|dvd|blu-ray|book|game|cd)$/i.test(String(itemType || ""));
   }
 
   function imagePayloadForLookup(source) {
@@ -510,16 +515,17 @@
 
   function makeSpineOcrVariants(source) {
     var variants = [
-      { name: "wide", xStart: 0.04, xEnd: 0.96, threshold: false, priority: 2 },
-      { name: "middle", xStart: 0.12, xEnd: 0.9, threshold: false, priority: 1 }
+      { name: "center-strip", xStart: 0.12, xEnd: 0.9, yStart: 0.12, yEnd: 0.88, threshold: false, priority: 4, mode: "7" },
+      { name: "title-core", xStart: 0.2, xEnd: 0.84, yStart: 0.16, yEnd: 0.84, threshold: false, priority: 5, mode: "7" },
+      { name: "wide", xStart: 0.04, xEnd: 0.96, yStart: 0.06, yEnd: 0.94, threshold: false, priority: 2, mode: "7" },
+      { name: "middle", xStart: 0.12, xEnd: 0.9, yStart: 0.05, yEnd: 0.95, threshold: false, priority: 1, mode: "6" },
+      { name: "high-contrast", xStart: 0.12, xEnd: 0.9, yStart: 0.12, yEnd: 0.88, threshold: true, priority: 0, mode: "7" }
     ];
-    if (source.height < 140 || source.width < 900) {
-      variants.push({ name: "sharp", xStart: 0.02, xEnd: 0.98, threshold: true, priority: 0 });
-    }
     return variants.map(function (variant) {
       return {
         name: variant.name,
         priority: variant.priority,
+        mode: variant.mode,
         canvas: prepareSpineOcrCanvas(source, variant)
       };
     });
@@ -528,9 +534,11 @@
   function prepareSpineOcrCanvas(source, options) {
     var x = Math.floor(source.width * options.xStart);
     var width = Math.max(40, Math.floor(source.width * (options.xEnd - options.xStart)));
-    var targetHeight = Math.max(170, Math.min(260, source.height * 3));
-    var scale = targetHeight / Math.max(1, source.height);
-    var targetWidth = Math.max(420, Math.min(1900, Math.round(width * scale)));
+    var y = Math.floor(source.height * (options.yStart || 0));
+    var height = Math.max(18, Math.floor(source.height * ((options.yEnd || 1) - (options.yStart || 0))));
+    var targetHeight = Math.max(210, Math.min(340, height * 4));
+    var scale = targetHeight / Math.max(1, height);
+    var targetWidth = Math.max(520, Math.min(2200, Math.round(width * scale)));
     var canvas = document.createElement("canvas");
     canvas.width = targetWidth;
     canvas.height = targetHeight;
@@ -539,7 +547,7 @@
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(source, x, 0, width, source.height, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(source, x, y, width, height, 0, 0, canvas.width, canvas.height);
     normalizeOcrPixels(canvas, Boolean(options.threshold));
     return canvas;
   }
@@ -588,10 +596,20 @@
     disableOcr(true);
     try {
       var results = [];
+      setLiveStatus("Reading the whole stack first...");
+      var stackHints = await readStackTextHints(stackSource, bands.length).catch(function () {
+        return [];
+      });
       for (var index = 0; index < bands.length; index += 1) {
         var band = cropBandCanvas(stackSource, bands[index]);
         setLiveStatus("Scanning spine " + (index + 1) + " of " + bands.length + "...");
         var ocr = await readSpineBand(band, index, bands.length);
+        var hintedTitle = stackHints[index] || "";
+        if (hintedTitle && (ocr.quality < 0.58 || titleQuality(hintedTitle) > ocr.quality + 0.08)) {
+          ocr.title = hintedTitle;
+          ocr.quality = titleQuality(hintedTitle);
+          ocr.rawText = [ocr.rawText, "Stack hint: " + hintedTitle].filter(Boolean).join("\n");
+        }
         var title = ocr.title || "Unclear spine " + (index + 1);
         var imageLookup = await lookupBandImage(band).catch(function () {
           return null;
@@ -649,6 +667,105 @@
       });
     }
     return bands;
+  }
+
+  async function readStackTextHints(source, bandCount) {
+    if (!isMediaSpineType(state.itemType)) return [];
+    var variants = makeStackOcrVariants(source);
+    var best = [];
+    for (var index = 0; index < variants.length; index += 1) {
+      var variant = variants[index];
+      var result = await window.Tesseract.recognize(variant.canvas, "eng", {
+        tessedit_pageseg_mode: variant.mode || "6",
+        preserve_interword_spaces: "1",
+        logger: function (message) {
+          if (message.status === "recognizing text") {
+            setProgress(Math.max(0.02, Math.min(0.22, (index + (message.progress || 0)) / variants.length * 0.22)));
+          }
+        }
+      });
+      var rawText = result && result.data && result.data.text || "";
+      var hints = parseStackTitleHints(rawText, bandCount);
+      if (hints.length > best.length) {
+        best = hints;
+      }
+      if (hints.length >= Math.min(bandCount, 4)) {
+        break;
+      }
+    }
+    return best.slice(0, bandCount);
+  }
+
+  function makeStackOcrVariants(source) {
+    var variants = [
+      { name: "stack-center", xStart: 0.08, xEnd: 0.92, yStart: 0.02, yEnd: 0.98, threshold: false, priority: 3, mode: "6" },
+      { name: "stack-title-core", xStart: 0.16, xEnd: 0.86, yStart: 0.02, yEnd: 0.98, threshold: false, priority: 4, mode: "6" },
+      { name: "stack-wide-contrast", xStart: 0.04, xEnd: 0.96, yStart: 0.02, yEnd: 0.98, threshold: true, priority: 1, mode: "6" }
+    ];
+    return variants.map(function (variant) {
+      return {
+        name: variant.name,
+        priority: variant.priority,
+        mode: variant.mode,
+        canvas: prepareStackOcrCanvas(source, variant)
+      };
+    });
+  }
+
+  function prepareStackOcrCanvas(source, options) {
+    var x = Math.floor(source.width * options.xStart);
+    var width = Math.max(80, Math.floor(source.width * (options.xEnd - options.xStart)));
+    var y = Math.floor(source.height * (options.yStart || 0));
+    var height = Math.max(60, Math.floor(source.height * ((options.yEnd || 1) - (options.yStart || 0))));
+    var targetWidth = 1600;
+    var scale = targetWidth / Math.max(1, width);
+    var targetHeight = Math.max(420, Math.min(2600, Math.round(height * scale)));
+    var canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    var ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(source, x, y, width, height, 0, 0, canvas.width, canvas.height);
+    normalizeOcrPixels(canvas, Boolean(options.threshold));
+    return canvas;
+  }
+
+  function parseStackTitleHints(text, bandCount) {
+    var rows = String(text || "")
+      .split(/\n+/)
+      .map(cleanSpineCandidate)
+      .filter(function (line) {
+        return line.length >= 3 && /[a-z]/i.test(line) && !isNoiseLine(line);
+      });
+    var candidates = [];
+    rows.forEach(function (line) {
+      candidates.push(line);
+    });
+    for (var index = 0; index < rows.length - 1; index += 1) {
+      var combined = cleanSpineCandidate(rows[index] + " " + rows[index + 1]);
+      if (titleQuality(combined) >= 0.5) {
+        candidates.push(combined);
+      }
+    }
+    var hints = [];
+    candidates.forEach(function (candidate) {
+      var title = applyKnownTitleHelp(candidate);
+      if (!title || titleQuality(title) < 0.43) return;
+      if (hints.some(function (existing) { return similarTitle(existing, title); })) return;
+      hints.push(title.slice(0, 100));
+    });
+    return hints.slice(0, Math.max(1, bandCount || hints.length));
+  }
+
+  function similarTitle(first, second) {
+    var firstTokens = titleTokens(first);
+    var secondTokens = titleTokens(second);
+    if (!firstTokens.length || !secondTokens.length) return false;
+    var shared = firstTokens.filter(function (word) { return secondTokens.indexOf(word) !== -1; }).length;
+    return shared / Math.min(firstTokens.length, secondTokens.length) >= 0.65;
   }
 
   function defaultScanBoxFor(source) {
@@ -1041,6 +1158,9 @@
       .replace(/\bFHO?M\b/gi, "From")
       .replace(/\bFR0M\b/gi, "From")
       .replace(/\bH0ME\b/gi, "Home")
+      .replace(/\bDesperad[o0]?\b/gi, "Desperado")
+      .replace(/\bD[e3]sperad[o0]\b/gi, "Desperado")
+      .replace(/\bBarber\s*Shop\b/gi, "Barbershop")
       .replace(/\bMira(?:c|e|ee|cee)+\b/gi, "Miracle")
       .replace(/\bStree(?:t|l|i)?\b/gi, "Street")
       .replace(/\bPoo[h]?\b/gi, "Pooh")
@@ -1055,6 +1175,11 @@
   function applyKnownTitleHelp(value) {
     var title = cleanTitle(value);
     var direct = [
+      [/desp|esperado/i, "Desperado"],
+      [/quinn|medicine.*woman|season.*five|complete.*five/i, "Dr. Quinn Medicine Woman The Complete Season Five"],
+      [/barber|barbershop/i, "Barbershop"],
+      [/expect.*miracle|miracle.*expect/i, "Expecting a Miracle"],
+      [/wedding.*dress/i, "The Wedding Dress"],
       [/miracle/i, "Miracle on 34th Street"],
       [/winnie|pooh/i, "Winnie the Pooh"],
       [/lion.*king|simba/i, "The Lion King II Simba's Pride"],
@@ -1163,7 +1288,7 @@
             '<span><strong>' + escapeHtml(formatRate(lookup.sellThroughRate)) + '</strong><small>STR</small></span>' +
             '<span><strong>' + escapeHtml(String(totalCount || activeCount || "-")) + '</strong><small>' + escapeHtml(soldCount ? "sold+active" : "active") + '</small></span>' +
           '</div>' +
-          '<p class="result-note">' + escapeHtml(note + " " + quality + "% confidence. " + score.reason) + '</p>' +
+          '<p class="result-note">' + escapeHtml(note + " " + quality + "% title strength. " + score.reason) + '</p>' +
           renderMarketSamples(lookup, result) +
         '</article>'
       );

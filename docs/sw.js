@@ -1,4 +1,4 @@
-const CACHE_NAME = "universal-spine-scanner-v12";
+const CACHE_NAME = "universal-spine-scanner-v13";
 const CORE_ASSETS = [
   "./",
   "./scanner.html",
