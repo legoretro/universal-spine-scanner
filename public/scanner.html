@@ -72,7 +72,17 @@
 
           <div class="canvas-wrap">
             <canvas id="scanCanvas" width="900" height="1200"></canvas>
+            <div id="scanBoxOverlay" class="scan-box-overlay" hidden>
+              <span class="scan-box-handle handle-nw" data-handle="nw"></span>
+              <span class="scan-box-handle handle-ne" data-handle="ne"></span>
+              <span class="scan-box-handle handle-sw" data-handle="sw"></span>
+              <span class="scan-box-handle handle-se" data-handle="se"></span>
+            </div>
             <div id="emptyCanvas" class="empty-canvas">Take a photo of the spine first</div>
+          </div>
+          <div class="scan-box-actions">
+            <button id="fitStackBox" class="tool-button" type="button">Fit scan box</button>
+            <button id="resetStackBox" class="tool-button" type="button">Full photo</button>
           </div>
 
           <details class="advanced-panel">

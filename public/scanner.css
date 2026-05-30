@@ -311,6 +311,7 @@ input[type="file"] {
   min-height: 260px;
   overflow: hidden;
   position: relative;
+  touch-action: none;
 }
 
 #scanCanvas {
@@ -325,6 +326,73 @@ input[type="file"] {
   color: var(--muted);
   padding: 2rem;
   text-align: center;
+}
+
+.scan-box-overlay {
+  background: rgba(182, 154, 244, 0.11);
+  border: 3px solid #b69af4;
+  border-radius: 0.7rem;
+  box-shadow:
+    0 0 0 9999px rgba(16, 15, 24, 0.28),
+    0 0 22px rgba(182, 154, 244, 0.35);
+  cursor: move;
+  min-height: 42px;
+  min-width: 60px;
+  position: absolute;
+  touch-action: none;
+  z-index: 2;
+}
+
+.scan-box-overlay::before {
+  background: #b69af4;
+  border-radius: 999px;
+  color: #171523;
+  content: "scan area";
+  font-size: 0.66rem;
+  font-weight: 900;
+  left: 0.45rem;
+  padding: 0.18rem 0.45rem;
+  position: absolute;
+  top: 0.4rem;
+}
+
+.scan-box-handle {
+  background: #f1eef8;
+  border: 2px solid #171523;
+  border-radius: 999px;
+  height: 22px;
+  position: absolute;
+  width: 22px;
+}
+
+.handle-nw {
+  cursor: nwse-resize;
+  left: -12px;
+  top: -12px;
+}
+
+.handle-ne {
+  cursor: nesw-resize;
+  right: -12px;
+  top: -12px;
+}
+
+.handle-sw {
+  bottom: -12px;
+  cursor: nesw-resize;
+  left: -12px;
+}
+
+.handle-se {
+  bottom: -12px;
+  cursor: nwse-resize;
+  right: -12px;
+}
+
+.scan-box-actions {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .tool-grid {

@@ -12,6 +12,8 @@
     currentFileName: "",
     rotation: 0,
     cropMode: "full",
+    scanBox: null,
+    scanBoxDrag: null,
     contrast: false,
     ocrRaw: "",
     currentLookup: null,
@@ -28,6 +30,9 @@
     currentImageTitle: document.getElementById("currentImageTitle"),
     retakeButton: document.getElementById("retakeButton"),
     canvas: document.getElementById("scanCanvas"),
+    scanBoxOverlay: document.getElementById("scanBoxOverlay"),
+    fitStackBox: document.getElementById("fitStackBox"),
+    resetStackBox: document.getElementById("resetStackBox"),
     emptyCanvas: document.getElementById("emptyCanvas"),
     rotateLeft: document.getElementById("rotateLeft"),
     rotateRight: document.getElementById("rotateRight"),
@@ -113,13 +118,31 @@
       els.cameraInput.click();
     });
 
+    els.fitStackBox.addEventListener("click", function () {
+      fitScanBoxToStack();
+    });
+
+    els.resetStackBox.addEventListener("click", function () {
+      if (!state.currentImage) return;
+      state.scanBox = { x: 0, y: 0, width: 1, height: 1 };
+      updateScanBoxOverlay();
+      setStatus("Full photo selected.");
+    });
+
+    els.scanBoxOverlay.addEventListener("pointerdown", startScanBoxDrag);
+    document.addEventListener("pointermove", moveScanBoxDrag);
+    document.addEventListener("pointerup", endScanBoxDrag);
+    window.addEventListener("resize", updateScanBoxOverlay);
+
     els.rotateLeft.addEventListener("click", function () {
       state.rotation = (state.rotation + 270) % 360;
+      state.scanBox = null;
       renderCanvas();
     });
 
     els.rotateRight.addEventListener("click", function () {
       state.rotation = (state.rotation + 90) % 360;
+      state.scanBox = null;
       renderCanvas();
     });
 
@@ -137,6 +160,7 @@
     ].forEach(function (pair) {
       pair[0].addEventListener("click", function () {
         state.cropMode = pair[1];
+        state.scanBox = null;
         updateCropButtons();
         renderCanvas();
       });
@@ -236,6 +260,8 @@
   function resetImageTools() {
     state.rotation = 0;
     state.cropMode = "full";
+    state.scanBox = null;
+    state.scanBoxDrag = null;
     state.contrast = false;
     state.ocrRaw = "";
     state.currentLookup = null;
@@ -269,6 +295,7 @@
   function renderCanvas() {
     if (!state.currentImage) {
       els.canvas.style.display = "none";
+      els.scanBoxOverlay.hidden = true;
       els.emptyCanvas.style.display = "block";
       return;
     }
@@ -278,6 +305,10 @@
     els.canvas.getContext("2d").drawImage(processed, 0, 0);
     els.canvas.style.display = "block";
     els.emptyCanvas.style.display = "none";
+    if (!state.scanBox) {
+      state.scanBox = defaultScanBoxFor(processed);
+    }
+    requestAnimationFrame(updateScanBoxOverlay);
   }
 
   function makeProcessedCanvas() {
@@ -544,8 +575,9 @@
       return;
     }
     var base = makeProcessedCanvas();
+    base = cropByScanBox(base);
     var typedCount = Number(els.stackCount.value || 0);
-    var stackSource = cropLikelyStackArea(base);
+    var stackSource = state.scanBox && isFullScanBox(state.scanBox) ? cropLikelyStackArea(base) : base;
     var bands = splitStackBands(stackSource, typedCount);
     els.liveResults.innerHTML = "";
     setLiveStatus("Found " + bands.length + " possible spine rows. Scanning now...");
@@ -613,6 +645,132 @@
       });
     }
     return bands;
+  }
+
+  function defaultScanBoxFor(source) {
+    var bounds = detectStackBounds(source);
+    if (bounds) {
+      return clampScanBox({
+        x: bounds.left / source.width,
+        y: bounds.top / source.height,
+        width: (bounds.right - bounds.left) / source.width,
+        height: (bounds.bottom - bounds.top) / source.height
+      });
+    }
+    return { x: 0.05, y: 0.28, width: 0.9, height: 0.62 };
+  }
+
+  function fitScanBoxToStack() {
+    if (!state.currentImage) {
+      setStatus("Take or choose a photo first.");
+      return;
+    }
+    var processed = makeProcessedCanvas();
+    state.scanBox = defaultScanBoxFor(processed);
+    updateScanBoxOverlay();
+    setStatus("Scan box fitted to the visible stack.");
+  }
+
+  function cropByScanBox(source) {
+    var box = clampScanBox(state.scanBox || { x: 0, y: 0, width: 1, height: 1 });
+    var x = Math.max(0, Math.round(box.x * source.width));
+    var y = Math.max(0, Math.round(box.y * source.height));
+    var width = Math.max(1, Math.min(source.width - x, Math.round(box.width * source.width)));
+    var height = Math.max(1, Math.min(source.height - y, Math.round(box.height * source.height)));
+    var canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(source, x, y, width, height, 0, 0, width, height);
+    return canvas;
+  }
+
+  function updateScanBoxOverlay() {
+    if (!state.currentImage || els.canvas.style.display === "none") {
+      els.scanBoxOverlay.hidden = true;
+      return;
+    }
+    if (!state.scanBox) {
+      state.scanBox = { x: 0, y: 0, width: 1, height: 1 };
+    }
+    var box = clampScanBox(state.scanBox);
+    state.scanBox = box;
+    var canvasRect = els.canvas.getBoundingClientRect();
+    var wrapRect = els.canvas.parentElement.getBoundingClientRect();
+    if (!canvasRect.width || !canvasRect.height) {
+      els.scanBoxOverlay.hidden = true;
+      return;
+    }
+    els.scanBoxOverlay.hidden = false;
+    els.scanBoxOverlay.style.left = (canvasRect.left - wrapRect.left + box.x * canvasRect.width) + "px";
+    els.scanBoxOverlay.style.top = (canvasRect.top - wrapRect.top + box.y * canvasRect.height) + "px";
+    els.scanBoxOverlay.style.width = (box.width * canvasRect.width) + "px";
+    els.scanBoxOverlay.style.height = (box.height * canvasRect.height) + "px";
+  }
+
+  function startScanBoxDrag(event) {
+    if (!state.currentImage || !state.scanBox) return;
+    event.preventDefault();
+    var handle = event.target.closest("[data-handle]");
+    state.scanBoxDrag = {
+      mode: handle ? handle.getAttribute("data-handle") : "move",
+      startX: event.clientX,
+      startY: event.clientY,
+      startBox: Object.assign({}, state.scanBox),
+      canvasRect: els.canvas.getBoundingClientRect()
+    };
+    if (els.scanBoxOverlay.setPointerCapture) {
+      els.scanBoxOverlay.setPointerCapture(event.pointerId);
+    }
+  }
+
+  function moveScanBoxDrag(event) {
+    if (!state.scanBoxDrag) return;
+    event.preventDefault();
+    var drag = state.scanBoxDrag;
+    var dx = (event.clientX - drag.startX) / Math.max(1, drag.canvasRect.width);
+    var dy = (event.clientY - drag.startY) / Math.max(1, drag.canvasRect.height);
+    var box = Object.assign({}, drag.startBox);
+    if (drag.mode === "move") {
+      box.x += dx;
+      box.y += dy;
+    } else {
+      if (drag.mode.indexOf("w") !== -1) {
+        box.x += dx;
+        box.width -= dx;
+      }
+      if (drag.mode.indexOf("e") !== -1) {
+        box.width += dx;
+      }
+      if (drag.mode.indexOf("n") !== -1) {
+        box.y += dy;
+        box.height -= dy;
+      }
+      if (drag.mode.indexOf("s") !== -1) {
+        box.height += dy;
+      }
+    }
+    state.scanBox = clampScanBox(box);
+    updateScanBoxOverlay();
+  }
+
+  function endScanBoxDrag() {
+    if (!state.scanBoxDrag) return;
+    state.scanBoxDrag = null;
+    setStatus("Scan box ready.");
+  }
+
+  function clampScanBox(box) {
+    var minWidth = 0.16;
+    var minHeight = 0.08;
+    var width = Math.max(minWidth, Math.min(1, Number(box.width || minWidth)));
+    var height = Math.max(minHeight, Math.min(1, Number(box.height || minHeight)));
+    var x = Math.max(0, Math.min(1 - width, Number(box.x || 0)));
+    var y = Math.max(0, Math.min(1 - height, Number(box.y || 0)));
+    return { x: x, y: y, width: width, height: height };
+  }
+
+  function isFullScanBox(box) {
+    return !box || (box.x <= 0.005 && box.y <= 0.005 && box.width >= 0.99 && box.height >= 0.99);
   }
 
   function cropLikelyStackArea(source) {
