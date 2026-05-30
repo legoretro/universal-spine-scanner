@@ -205,13 +205,15 @@ async function readBand(context) {
     const result = await context.worker.recognize(buffer);
     const rawText = result && result.data && result.data.text || "";
     const confidence = Number(result && result.data && result.data.confidence || 0);
-    const title = bestSpineTitle(rawText);
+    const knownTitle = knownTitleFrom(rawText);
+    const title = knownTitle || bestSpineTitle(rawText);
     const quality = titleQuality(title);
     const score = quality * 100 + confidence + title.length * 0.08 + variant.priority;
     if (score > best.score) {
       best = { title, rawText, confidence, quality, score };
     }
-    if (quality >= 0.72 && confidence >= 45) break;
+    if (knownTitle && confidence >= 20) break;
+    if (quality >= 0.72 && confidence >= 35 && !isLikelyGarbageTitle(title)) break;
   }
   const rawKnownTitle = knownTitleFrom(best.rawText);
   best.title = rawKnownTitle || applyKnownTitleHelp(best.title);
@@ -281,6 +283,13 @@ async function resolveBandTitle({ ocr, itemType, services, bandImage }) {
       }));
       const confidence = lookupConfidence(candidate.title, next);
       const hasKnownTitle = isKnownHelpTitle(candidate.title);
+      if (hasKnownTitle && lookupHasData(next)) {
+        title = candidate.title;
+        lookup = next;
+        source = "known_title_lookup";
+        bestConfidence = Math.max(confidence, 0.5);
+        break;
+      }
       if (next && next.suggestedTitle && shouldUseSuggestedTitle(candidate.title, next.suggestedTitle)) {
         title = cleanSpineCandidate(next.suggestedTitle);
         next.query = title;
@@ -444,7 +453,8 @@ const KNOWN_TITLE_PATTERNS = [
   [/expect.*miracle|miracle.*expect/i, "Expecting a Miracle"],
   [/wedding.*dress/i, "The Wedding Dress"],
   [/onbat|34th|34\s*street|miracee|mirace\b|miracle/i, "Miracle on 34th Street"],
-  [/winnie|pooh|many.*adventures|manyadventures/i, "Winnie the Pooh"],
+  [/many.*adventures|manyadventures/i, "The Many Adventures of Winnie the Pooh"],
+  [/winnie|pooh/i, "Winnie the Pooh"],
   [/lion.*king|simba|simba.*pride/i, "The Lion King II Simba's Pride"],
   [/stuart.*little.*2|little\s*2/i, "Stuart Little 2"],
   [/stuart.*little/i, "Stuart Little"],
