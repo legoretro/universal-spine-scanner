@@ -3,6 +3,7 @@
 
   var STORAGE_KEY = "universal-spine-scans-v1";
   var API_BASE_KEY = "universal-spine-api-base-url-v1";
+  var DEFAULT_API_BASE = "https://universal-spine-scanner.onrender.com";
   var STATIC_PAGES_MODE = window.location.hostname.endsWith("github.io") || window.location.protocol === "file:";
   var state = {
     itemType: "VHS",
@@ -46,6 +47,7 @@
     scanStack: document.getElementById("scanStack"),
     stackCount: document.getElementById("stackCount"),
     backendStatus: document.getElementById("backendStatus"),
+    backendPanel: document.getElementById("backendPanel"),
     apiBaseUrl: document.getElementById("apiBaseUrl"),
     saveApiBase: document.getElementById("saveApiBase"),
     liveLookupStatus: document.getElementById("liveLookupStatus"),
@@ -73,7 +75,7 @@
 
   function init() {
     state.apiBaseUrl = loadApiBaseUrl();
-    els.apiBaseUrl.value = state.apiBaseUrl;
+    if (els.apiBaseUrl) els.apiBaseUrl.value = state.apiBaseUrl;
     state.scans = loadLocalScans();
     bindEvents();
     renderList();
@@ -598,6 +600,7 @@
           title = cleanSpineCandidate(imageLookup.suggestedTitle);
           ocr.quality = Math.max(ocr.quality, titleQuality(title));
         }
+        var acceptedImageTitle = Boolean(imageLookup && imageLookup.suggestedTitle && title === cleanSpineCandidate(imageLookup.suggestedTitle));
         var lookup = shouldLookupTitle(title)
           ? await api("/api/lookup-ebay?title=" + encodeURIComponent(title) + "&itemType=" + encodeURIComponent(state.itemType))
             .catch(function () {
@@ -613,17 +616,18 @@
           id: cryptoId(),
           title: title,
           rawText: ocr.rawText,
-          imageMatched: Boolean(imageLookup && imageLookup.suggestedTitle),
+          imageMatched: acceptedImageTitle,
           quality: ocr.quality,
           confidence: ocr.confidence,
           needsRescan: !shouldLookupTitle(title),
           lookup: lookup,
-          memory: findMemoryMatch(title)
+          memory: findMemoryMatch(title),
+          thumb: band.toDataURL("image/jpeg", 0.72)
         });
         renderLiveResults(results);
       }
       setProgress(1);
-      setLiveStatus(hasLiveBackend() ? "Done. Clean titles were checked against eBay. Edit any weak title and rescan that item." : "Add the live backend URL to load eBay STR and seller memory inside the cards.");
+      setLiveStatus(hasLiveBackend() ? "Done. Check the weak titles, then rescan tighter if needed." : "Open the Render app to use live eBay data.");
       setStatus("Live lookup list is ready.");
     } catch (error) {
       setLiveStatus("Stack scan stopped: " + error.message);
@@ -1106,11 +1110,29 @@
     var current = titleQuality(currentTitle);
     var suggested = titleQuality(suggestedTitle);
     if (!suggestedTitle || suggested < 0.45) return false;
+    if (current >= 0.2 && !hasSharedTitleToken(currentTitle, suggestedTitle)) return false;
     return suggested > current || suggestedTitle.length > currentTitle.length + 8;
   }
 
   function isGenericVisualTitle(value) {
     return /\b(lot|bundle|assorted|various|wholesale|disc lot|movie lot|dvd movie lot|collection)\b/i.test(String(value || ""));
+  }
+
+  function hasSharedTitleToken(first, second) {
+    var firstWords = titleTokens(first);
+    var secondWords = titleTokens(second);
+    return firstWords.some(function (word) {
+      return secondWords.indexOf(word) !== -1;
+    });
+  }
+
+  function titleTokens(value) {
+    return cleanTitle(value).toLowerCase()
+      .split(/\s+/)
+      .map(function (word) { return word.replace(/[^a-z0-9]/g, ""); })
+      .filter(function (word) {
+        return word.length >= 4 && ["with", "from", "the", "and", "edition", "movie", "dvd", "vhs"].indexOf(word) === -1;
+      });
   }
 
   function renderLiveResults(results) {
@@ -1121,22 +1143,27 @@
     els.liveResults.innerHTML = results.map(function (result, index) {
       var lookup = enrichLookup(result.lookup || buildStaticEbayLookup(result.title));
       var score = result.needsRescan ? { color: "unknown", label: "Rescan", reason: "OCR title is too weak.", decision: "review" } : scoreFor(lookup);
-      var price = lookup.estimatedPrice ? money(lookup.estimatedPrice) : "add data";
-      var bucket = lookup.valueBucket || "check manually";
-      var memory = sellerMemoryFor(result);
+      var price = lookup.estimatedPrice ? money(lookup.estimatedPrice) : "No price";
+      var activeCount = Number(lookup.activeCount || 0);
+      var soldCount = Number(lookup.soldCount || 0);
+      var totalCount = activeCount + soldCount;
+      var quality = Math.round(Number(result.quality || 0) * 100);
+      var note = result.needsRescan
+        ? "Needs a clearer title. Crop tighter or retake closer."
+        : (result.imageMatched ? "Matched with image + OCR." : "Read by OCR.");
       return (
         '<article class="live-result-row score-' + escapeAttr(score.color) + '">' +
-          '<span class="live-number">' + (index + 1) + '</span>' +
-          '<input class="live-title-input" data-live-title="' + index + '" value="' + escapeAttr(result.title) + '">' +
-          '<span class="score-pill">' + escapeHtml(score.label) + '</span>' +
-          '<span class="scan-quality">' + (result.imageMatched ? "visual match + " : "") + 'OCR ' + Math.round(Number(result.quality || 0) * 100) + '%</span>' +
-          '<div class="live-score-grid">' +
-            '<label>Sold<input data-live-sold="' + index + '" type="number" min="0" inputmode="numeric" value="' + escapeAttr(lookup.soldCount || "") + '"></label>' +
-            '<label>Active<input data-live-active="' + index + '" type="number" min="0" inputmode="numeric" value="' + escapeAttr(lookup.activeCount || "") + '"></label>' +
-            '<label>Price<input data-live-price="' + index + '" type="number" min="0" step="0.01" inputmode="decimal" value="' + escapeAttr(lookup.estimatedPrice || "") + '"></label>' +
+          '<div class="result-mainline">' +
+            '<span class="live-number">' + (index + 1) + '</span>' +
+            '<input class="live-title-input" data-live-title="' + index + '" value="' + escapeAttr(result.title) + '">' +
+            '<span class="score-pill">' + escapeHtml(score.label) + '</span>' +
           '</div>' +
-          '<span class="live-bucket">' + escapeHtml(bucket) + " - " + escapeHtml(price) + " - STR " + escapeHtml(formatRate(lookup.sellThroughRate)) + " - " + escapeHtml(score.reason) + '</span>' +
-          '<span class="memory-line">' + escapeHtml(memory) + '</span>' +
+          '<div class="metric-row">' +
+            '<span><strong>' + escapeHtml(price) + '</strong><small>price</small></span>' +
+            '<span><strong>' + escapeHtml(formatRate(lookup.sellThroughRate)) + '</strong><small>STR</small></span>' +
+            '<span><strong>' + escapeHtml(String(totalCount || activeCount || "-")) + '</strong><small>' + escapeHtml(soldCount ? "sold+active" : "active") + '</small></span>' +
+          '</div>' +
+          '<p class="result-note">' + escapeHtml(note + " " + quality + "% confidence. " + score.reason) + '</p>' +
           renderMarketSamples(lookup, result) +
         '</article>'
       );
@@ -1156,6 +1183,7 @@
   function handleLiveResultEdit(event) {
     var input = event.target.closest("[data-live-sold], [data-live-active], [data-live-price], [data-live-title]");
     if (!input) return;
+    if (input.hasAttribute("data-live-title")) return;
     var row = input.closest(".live-result-row");
     if (!row) return;
     var sold = moneyNumber((row.querySelector("[data-live-sold]") || {}).value);
@@ -1485,12 +1513,12 @@
     var sold = Array.isArray(lookup.soldSample) ? lookup.soldSample : [];
     var active = Array.isArray(lookup.activeSample) ? lookup.activeSample : [];
     if (!sold.length && !active.length) {
-      return '<div class="market-samples empty">' + escapeHtml(lookup.noLookupReason || "No confident eBay match yet. Edit the title or retake closer.") + '</div>';
+      return '<div class="market-samples empty">' + escapeHtml(lookup.noLookupReason || "No confident eBay match yet. Crop tighter or retake closer.") + '</div>';
     }
     return (
       '<div class="market-samples">' +
-        renderSampleColumn("Sold", sold) +
-        renderSampleColumn("Active", active) +
+        (sold.length ? renderSampleColumn("Sold sample", sold) : "") +
+        (active.length ? renderSampleColumn("Active sample", active) : "") +
       '</div>'
     );
   }
@@ -1537,10 +1565,11 @@
       localStorage.setItem(API_BASE_KEY, fromUrl.trim());
       return fromUrl.trim();
     }
-    return localStorage.getItem(API_BASE_KEY) || "";
+    return localStorage.getItem(API_BASE_KEY) || (STATIC_PAGES_MODE ? DEFAULT_API_BASE : "");
   }
 
   function saveApiBaseUrl() {
+    if (!els.apiBaseUrl) return;
     state.apiBaseUrl = els.apiBaseUrl.value.trim().replace(/\/+$/, "");
     if (state.apiBaseUrl) {
       localStorage.setItem(API_BASE_KEY, state.apiBaseUrl);
@@ -1551,6 +1580,7 @@
   }
 
   function checkBackendStatus() {
+    configureBackendPanel();
     els.backendStatus.textContent = hasLiveBackend() ? "eBay: check" : "eBay: setup";
     els.backendStatus.className = "status-pill";
     api("/api/config")
@@ -1563,6 +1593,12 @@
         els.backendStatus.textContent = hasLiveBackend() ? "eBay: offline" : "eBay: setup";
         els.backendStatus.classList.add("warn");
       });
+  }
+
+  function configureBackendPanel() {
+    if (!els.backendPanel) return;
+    var showSettings = new URLSearchParams(window.location.search).get("settings") === "1";
+    els.backendPanel.classList.toggle("app-hidden", !showSettings);
   }
 
   function buildStaticEbayLookup(query) {
@@ -1651,7 +1687,7 @@
       return {
         color: "unknown",
         label: "Needs data",
-        reason: "Open sold/active or add counts.",
+        reason: "Sold data is not connected yet.",
         decision: "review"
       };
     }
