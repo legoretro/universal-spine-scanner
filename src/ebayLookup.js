@@ -9,9 +9,8 @@ class EbayLookup {
     const itemType = cleanLookupQuery(input.itemType || input.type || "");
     const condition = cleanCondition(input.condition || "used");
     const categoryIds = categoryIdsForItemType(itemType);
-    const encoded = encodeURIComponent(query);
-    const activeUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}`;
-    const soldUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}&LH_Complete=1&LH_Sold=1`;
+    const activeUrl = ebaySearchUrl(query, { condition });
+    const soldUrl = ebaySearchUrl(query, { condition, sold: true });
     let activeItems = [];
     let soldItems = [];
     let activeTotal = 0;
@@ -395,6 +394,7 @@ function resaleDecision(input) {
   const rate = rawRate === null || rawRate === undefined ? null : Number(rawRate || 0);
   const soldCount = Number(input.soldCount || 0);
   const score = valueScore({ estimatedPrice: price, sellThroughRate: rawRate });
+  if (rate === null) return "review";
   if (score.color === "gold" || score.color === "green") return "worth listing";
   if (score.color === "red") return "skip";
   if (price >= 20 && rate >= 35) return "worth listing";
@@ -412,7 +412,7 @@ function valueScore(input) {
     return {
       color: "unknown",
       label: "Needs live data",
-      reason: "Connect backend eBay lookup for STR."
+      reason: "eBay sold-listing permission is not active yet."
     };
   }
   if (rate >= 70 && price >= 50) {
@@ -433,6 +433,21 @@ function roundMoney(value) {
 
 function cleanLookupQuery(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+function ebaySearchUrl(query, options = {}) {
+  const url = new URL("https://www.ebay.com/sch/i.html");
+  url.searchParams.set("_nkw", query);
+  if (options.sold) {
+    url.searchParams.set("LH_Complete", "1");
+    url.searchParams.set("LH_Sold", "1");
+  }
+  if (options.condition === "new") {
+    url.searchParams.set("LH_ItemCondition", "1000");
+  } else if (options.condition === "used") {
+    url.searchParams.set("LH_ItemCondition", "3000");
+  }
+  return url.toString();
 }
 
 function cleanImagePayload(value) {
