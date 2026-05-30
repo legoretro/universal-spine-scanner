@@ -302,7 +302,7 @@ async function resolveBandTitle({ ocr, itemType, services, bandImage }) {
   }
 
   const weakOcr = !shouldLookupTitle(title) || isLikelyGarbageTitle(title);
-  if (services && services.imageLookup && bandImage && (!lookupHasData(lookup) || weakOcr)) {
+  if (services && services.imageLookup && bandImage && !isMediaStackType(itemType) && (!lookupHasData(lookup) || weakOcr)) {
     const imageLookup = await services.imageLookup(bandImage, itemType).catch((error) => ({
       error: error.message,
       source: "image_lookup_failed"
@@ -322,6 +322,7 @@ async function resolveBandTitle({ ocr, itemType, services, bandImage }) {
 
   const needsRescan = !shouldLookupTitle(title)
     || isLikelyGarbageTitle(title)
+    || (!lookupHasData(lookup) && !isKnownHelpTitle(title))
     || (!lookupHasData(lookup) && titleQuality(title) < 0.64)
     || (lookupHasData(lookup) && bestConfidence < 0.2 && !isKnownHelpTitle(title));
 
@@ -381,6 +382,10 @@ function rawLineCandidates(text) {
   return candidates
     .filter(Boolean)
     .sort((a, b) => titleQuality(b) - titleQuality(a));
+}
+
+function isMediaStackType(itemType) {
+  return /^(vhs|dvd|blu[- ]?ray|book|game|cd|cassette)$/i.test(String(itemType || "").trim());
 }
 
 function bestSpineTitle(text) {
@@ -444,8 +449,8 @@ const KNOWN_TITLE_PATTERNS = [
   [/stuart.*little.*2|little\s*2/i, "Stuart Little 2"],
   [/stuart.*little/i, "Stuart Little"],
   [/old.*yell|oldyell|yeller/i, "Old Yeller"],
-  [/lady.*tramp|tramp.*ii|lagy.*tramp/i, "Lady and the Tramp II"],
-  [/bedknob|broom|broomstick|bibilo/i, "Bedknobs and Broomsticks"],
+  [/lady.*tramp|tramp.*ii|lagy|lranp|tranp/i, "Lady and the Tramp II"],
+  [/bedknob|broom|broomstick|bibilo|nobs|nobz/i, "Bedknobs and Broomsticks"],
   [/\bbabe\b|\bbabe\s/i, "Babe"],
   [/aladdin.*king|king.*thieves|aladdwr|aladd/i, "Aladdin and the King of Thieves"],
   [/return.*jaf|jafar|jaf[a-z]{0,3}/i, "The Return of Jafar"],
