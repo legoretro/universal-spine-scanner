@@ -1575,7 +1575,8 @@
       return;
     }
     lookup = enrichLookup(lookup);
-    var price = money(lookup.estimatedPrice || 0);
+    var soldPrice = lookup.averageSoldPrice || lookup.medianSoldPrice || lookup.estimatedPrice || 0;
+    var price = soldPrice ? money(soldPrice) : "No sold average";
     var rate = formatRate(lookup.sellThroughRate);
     var score = scoreFor(lookup);
     els.valueResult.className = "value-result score-" + score.color;

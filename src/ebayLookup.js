@@ -50,7 +50,8 @@ class EbayLookup {
     const soldPrices = soldItems.map(itemPrice).filter((price) => price > 0);
     const averageSoldPrice = average(soldPrices);
     const medianSoldPrice = median(soldPrices);
-    const estimatedPrice = averageSoldPrice || medianSoldPrice || median(activePrices);
+    const activeMedianPrice = median(activePrices);
+    const estimatedPrice = averageSoldPrice || medianSoldPrice || 0;
     const activeCount = activeTotal || activeItems.length;
     const soldCount = soldTotal || soldItems.length;
     const sellThroughRate = soldLookupAvailable && (activeCount || soldCount)
@@ -73,8 +74,9 @@ class EbayLookup {
       sellThroughRate,
       averageSoldPrice,
       medianSoldPrice,
+      activeMedianPrice,
       estimatedPrice,
-      valueBucket: valueBucket(estimatedPrice),
+      valueBucket: estimatedPrice ? valueBucket(estimatedPrice) : "sold data needed",
       score: valueScore({ estimatedPrice, sellThroughRate }),
       resaleDecision: resaleDecision({ estimatedPrice, sellThroughRate, soldCount }),
       suggestedTitle,
@@ -128,6 +130,7 @@ class EbayLookup {
       warnings.push(`Image lookup: ${error.message}`);
     }
     const activePrices = activeItems.map(itemPrice).filter((price) => price > 0);
+    const activeMedianPrice = median(activePrices);
     const suggestedTitle = cleanSuggestedTitle(activeItems[0] && activeItems[0].title || "");
     return {
       source: activeItems.length ? "ebay_image_search" : "image_no_match",
@@ -137,9 +140,10 @@ class EbayLookup {
       soldCount: 0,
       soldLookupAvailable: false,
       sellThroughRate: null,
-      estimatedPrice: median(activePrices),
-      valueBucket: valueBucket(median(activePrices)),
-      score: valueScore({ estimatedPrice: median(activePrices), sellThroughRate: null }),
+      activeMedianPrice,
+      estimatedPrice: 0,
+      valueBucket: "sold data needed",
+      score: valueScore({ estimatedPrice: 0, sellThroughRate: null }),
       resaleDecision: "review",
       suggestedTitle,
       activeSample: summarizeLookupItems(activeItems),
