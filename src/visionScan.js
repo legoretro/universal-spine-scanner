@@ -29,6 +29,7 @@ class VisionScanner {
 
     const image = decodeImage(input.image || "");
     const itemType = cleanText(input.itemType || input.type || "Other").slice(0, 40) || "Other";
+    const condition = cleanCondition(input.condition || "used");
     const itemCount = clampNumber(input.itemCount || input.count, 0, 40);
     const base = await sharp(image).rotate().resize({
       width: 1900,
@@ -48,10 +49,11 @@ class VisionScanner {
         const bandImage = services && services.imageLookup
           ? await makeBandLookupImage({ sharp, image: base, metadata, band }).catch(() => "")
           : "";
-        const resolved = await resolveBandTitle({ ocr, itemType, services, bandImage });
+        const resolved = await resolveBandTitle({ ocr, itemType, condition, services, bandImage });
         items.push({
           index: index + 1,
           title: resolved.title || `Unclear spine ${index + 1}`,
+          condition,
           rawText: ocr.rawText,
           confidence: Math.round(ocr.confidence),
           titleStrength: roundNumber(titleQuality(resolved.title), 2),
@@ -69,6 +71,7 @@ class VisionScanner {
     return {
       source: "backend_ocr",
       itemType,
+      condition,
       itemCount: bands.length,
       imageProcessed: true,
       note: "Image was processed in memory by the backend and not stored by this route.",
@@ -276,7 +279,7 @@ async function makeBandLookupImage(context) {
     .then((buffer) => buffer.toString("base64"));
 }
 
-async function resolveBandTitle({ ocr, itemType, services, bandImage }) {
+async function resolveBandTitle({ ocr, itemType, condition, services, bandImage }) {
   const candidates = buildTitleCandidates(ocr).slice(0, 4);
   let title = candidates[0] && candidates[0].title || "";
   let lookup = null;
@@ -286,7 +289,7 @@ async function resolveBandTitle({ ocr, itemType, services, bandImage }) {
   if (services && services.lookup) {
     for (const candidate of candidates) {
       if (!shouldLookupTitle(candidate.title)) continue;
-      const next = await services.lookup(candidate.title, itemType).catch((error) => ({
+      const next = await services.lookup(candidate.title, itemType, condition).catch((error) => ({
         error: error.message,
         query: candidate.title,
         source: "lookup_failed"
@@ -620,6 +623,12 @@ function looseTitleKey(value) {
 
 function isNoiseLine(value) {
   return /^(vhs|dvd|blu ray|hi fi|stereo|closed captioned|rated|color|isbn|upc)$/i.test(String(value || "").trim());
+}
+
+function cleanCondition(value) {
+  const clean = String(value || "").toLowerCase().trim();
+  if (clean === "new" || clean === "sealed") return "new";
+  return "used";
 }
 
 function cleanText(text) {

@@ -3,8 +3,9 @@ async function scanStackWithOpenAI(input, config, services) {
 
   const imageUrl = await buildImageDataUrl(input.image || "");
   const itemType = cleanText(input.itemType || input.type || "Other").slice(0, 40) || "Other";
+  const condition = cleanCondition(input.condition || "used");
   const itemCount = clampNumber(input.itemCount || input.count, 0, 40);
-  const prompt = buildPrompt({ itemType, itemCount });
+  const prompt = buildPrompt({ itemType, itemCount, condition });
   const payload = await requestOpenAI({
     apiKey: config.openaiApiKey,
     model: config.openaiVisionModel || "gpt-4.1-mini",
@@ -21,7 +22,7 @@ async function scanStackWithOpenAI(input, config, services) {
     const title = cleanTitleForLookup(item.title);
     const usableTitle = isUsableTitle(title);
     const lookup = usableTitle && services && services.lookup
-      ? await services.lookup(title, itemType).catch((error) => ({
+      ? await services.lookup(title, itemType, condition).catch((error) => ({
         error: error.message,
         query: title,
         source: "lookup_failed"
@@ -38,6 +39,7 @@ async function scanStackWithOpenAI(input, config, services) {
     return {
       index: item.index,
       title: title || `Unclear spine ${item.index}`,
+      condition,
       rawText: item.notes || "",
       confidence: Math.round(confidence * 100),
       titleStrength: roundNumber(confidence, 2),
@@ -52,6 +54,7 @@ async function scanStackWithOpenAI(input, config, services) {
   return {
     source: "openai_vision",
     itemType,
+    condition,
     itemCount: items.length,
     imageProcessed: true,
     note: "Image was read by the backend vision scanner and not stored by this route.",
@@ -139,7 +142,7 @@ async function requestOpenAI({ apiKey, model, prompt, imageUrl }) {
   return payload;
 }
 
-function buildPrompt({ itemType, itemCount }) {
+function buildPrompt({ itemType, itemCount, condition }) {
   const countLine = itemCount
     ? `Expected visible items: ${itemCount}. Return exactly ${itemCount} rows. Use "Unclear spine N" only if that row is unreadable.`
     : "Expected visible items: unknown. Return one row per readable spine.";
@@ -152,6 +155,7 @@ function buildPrompt({ itemType, itemCount }) {
     "Keep sequel numbers, season names, subtitles, and edition names when visible.",
     "Return clean resale search titles, not full descriptions.",
     `Broad item type selected by the user: ${itemType}.`,
+    `Condition selected by the user: ${condition}.`,
     countLine,
     "Confidence guide: 0.90+ means clearly readable; 0.70 means probably correct; below 0.60 means needs rescan.",
     "Return JSON only."
@@ -281,6 +285,12 @@ function cleanImagePayload(value) {
     .replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "")
     .replace(/\s+/g, "")
     .trim();
+}
+
+function cleanCondition(value) {
+  const clean = String(value || "").toLowerCase().trim();
+  if (clean === "new" || clean === "sealed") return "new";
+  return "used";
 }
 
 function cleanText(text) {

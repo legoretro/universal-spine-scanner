@@ -261,6 +261,8 @@ h2 {
 .lookup-grid > *,
 .camera-actions > *,
 .form-grid > *,
+.condition-row > *,
+.result-filter-row > *,
 .scan-box-actions > *,
 .stack-controls > *,
 .metric-row > * {
@@ -290,10 +292,32 @@ h2 {
 }
 
 .type-button.active,
-.tool-button.active {
+.tool-button.active,
+.condition-button.active {
   background: #8268d8;
   border-color: #745bd0;
   color: #ffffff;
+}
+
+.condition-row {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.7rem;
+}
+
+.condition-button {
+  align-items: center;
+  background: #f8f4ff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 850;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0.4rem 0.65rem;
 }
 
 .camera-actions,
@@ -494,6 +518,28 @@ progress {
   min-width: 0;
 }
 
+.result-filter-row {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mini-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.mini-field span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 820;
+}
+
+.mini-field input {
+  min-height: 42px;
+  padding: 0.58rem 0.7rem;
+}
+
 .backend-panel {
   background: rgba(245, 239, 252, 0.9);
   border: 1px solid var(--line);
@@ -610,7 +656,7 @@ progress {
 .metric-row {
   display: grid;
   gap: 0.45rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   max-width: 100%;
   min-width: 0;
 }
@@ -921,6 +967,7 @@ textarea:focus {
     grid-template-columns: repeat(6, 1fr);
   }
 
+  .condition-row,
   .camera-actions,
   .ocr-actions,
   .save-actions,
@@ -976,7 +1023,7 @@ textarea:focus {
   }
 
   .metric-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .editor-header,

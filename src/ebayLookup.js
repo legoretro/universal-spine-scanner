@@ -7,6 +7,7 @@ class EbayLookup {
   async lookup(input) {
     const query = cleanLookupQuery(input.title || input.query || input.barcode || "");
     const itemType = cleanLookupQuery(input.itemType || input.type || "");
+    const condition = cleanCondition(input.condition || "used");
     const categoryIds = categoryIdsForItemType(itemType);
     const encoded = encodeURIComponent(query);
     const activeUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}`;
@@ -15,25 +16,28 @@ class EbayLookup {
     let soldItems = [];
     let activeTotal = 0;
     let soldTotal = 0;
+    let soldLookupAvailable = false;
     const warnings = [];
 
     if (this.config.ebayConfigured && query) {
       try {
-        const active = await this.searchActiveListings(query, categoryIds);
+        const active = await this.searchActiveListings(query, categoryIds, condition);
         activeItems = active.items;
         activeTotal = active.total;
       } catch (error) {
         warnings.push(`Active lookup: ${error.message}`);
       }
       try {
-        const sold = await this.searchSoldItems(query, categoryIds);
+        const sold = await this.searchSoldItems(query, categoryIds, condition);
         soldItems = sold.items;
         soldTotal = sold.total;
+        soldLookupAvailable = true;
       } catch (error) {
         try {
-          const fallbackSold = await this.searchCompletedItems(query, categoryIds);
+          const fallbackSold = await this.searchCompletedItems(query, categoryIds, condition);
           soldItems = fallbackSold.items;
           soldTotal = fallbackSold.total;
+          soldLookupAvailable = true;
           warnings.push("Sold lookup used eBay completed-items fallback.");
         } catch (fallbackError) {
           warnings.push(`Sold lookup: ${error.message}; completed-items fallback: ${fallbackError.message}`);
@@ -45,10 +49,12 @@ class EbayLookup {
 
     const activePrices = activeItems.map(itemPrice).filter((price) => price > 0);
     const soldPrices = soldItems.map(itemPrice).filter((price) => price > 0);
-    const estimatedPrice = median(soldPrices.length ? soldPrices : activePrices);
+    const averageSoldPrice = average(soldPrices);
+    const medianSoldPrice = median(soldPrices);
+    const estimatedPrice = averageSoldPrice || medianSoldPrice || median(activePrices);
     const activeCount = activeTotal || activeItems.length;
     const soldCount = soldTotal || soldItems.length;
-    const sellThroughRate = activeCount || soldCount
+    const sellThroughRate = soldLookupAvailable && (activeCount || soldCount)
       ? Math.round((soldCount / Math.max(activeCount + soldCount, 1)) * 100)
       : null;
     const suggestedTitle = suggestTitle(query, soldItems.concat(activeItems));
@@ -56,6 +62,7 @@ class EbayLookup {
     return {
       query,
       itemType,
+      condition,
       categoryIds,
       source: soldItems.length ? "ebay_active_and_sold_samples" : activeItems.length ? "ebay_active_sample" : "url_builder",
       activeUrl,
@@ -63,7 +70,10 @@ class EbayLookup {
       manualUrl: activeUrl,
       activeCount,
       soldCount,
+      soldLookupAvailable,
       sellThroughRate,
+      averageSoldPrice,
+      medianSoldPrice,
       estimatedPrice,
       valueBucket: valueBucket(estimatedPrice),
       score: valueScore({ estimatedPrice, sellThroughRate }),
@@ -126,6 +136,7 @@ class EbayLookup {
       categoryIds,
       activeCount: activeTotal || activeItems.length,
       soldCount: 0,
+      soldLookupAvailable: false,
       sellThroughRate: null,
       estimatedPrice: median(activePrices),
       valueBucket: valueBucket(median(activePrices)),
@@ -139,7 +150,7 @@ class EbayLookup {
     };
   }
 
-  async searchActiveListings(query, categoryIds) {
+  async searchActiveListings(query, categoryIds, condition) {
     const token = await this.getAppToken("https://api.ebay.com/oauth/api_scope");
     const url = new URL(`${this.config.ebayApiBaseUrl}/buy/browse/v1/item_summary/search`);
     url.searchParams.set("q", query);
@@ -147,6 +158,7 @@ class EbayLookup {
     if (categoryIds) {
       url.searchParams.set("category_ids", categoryIds);
     }
+    addConditionFilter(url, condition);
     const payload = await ebayJson(url.toString(), {
       accessToken: token,
       marketplaceId: this.config.ebayMarketplaceId
@@ -157,7 +169,7 @@ class EbayLookup {
     };
   }
 
-  async searchSoldItems(query, categoryIds) {
+  async searchSoldItems(query, categoryIds, condition) {
     const token = await this.getAppToken("https://api.ebay.com/oauth/api_scope/buy.marketplace.insights");
     const url = new URL(`${this.config.ebayApiBaseUrl}/buy/marketplace_insights/v1_beta/item_sales/search`);
     url.searchParams.set("q", query);
@@ -165,6 +177,7 @@ class EbayLookup {
     if (categoryIds) {
       url.searchParams.set("category_ids", categoryIds);
     }
+    addConditionFilter(url, condition);
     const payload = await ebayJson(url.toString(), {
       accessToken: token,
       marketplaceId: this.config.ebayMarketplaceId
@@ -175,7 +188,7 @@ class EbayLookup {
     };
   }
 
-  async searchCompletedItems(query, categoryIds) {
+  async searchCompletedItems(query, categoryIds, condition) {
     if (!this.config.ebayClientId) {
       throw new Error("eBay App ID is not configured");
     }
@@ -190,6 +203,11 @@ class EbayLookup {
     url.searchParams.set("paginationInput.entriesPerPage", "30");
     url.searchParams.set("itemFilter(0).name", "SoldItemsOnly");
     url.searchParams.set("itemFilter(0).value", "true");
+    const findingCondition = condition === "new" ? "New" : condition === "used" ? "Used" : "";
+    if (findingCondition) {
+      url.searchParams.set("itemFilter(1).name", "Condition");
+      url.searchParams.set("itemFilter(1).value", findingCondition);
+    }
     if (categoryIds) {
       url.searchParams.set("categoryId", String(categoryIds).split(",")[0]);
     }
@@ -325,6 +343,26 @@ function categoryIdsForItemType(itemType) {
   return "";
 }
 
+function addConditionFilter(url, condition) {
+  const conditionIds = conditionIdsFor(condition);
+  if (!conditionIds) return;
+  const existing = url.searchParams.get("filter");
+  const next = `conditionIds:{${conditionIds}}`;
+  url.searchParams.set("filter", existing ? `${existing},${next}` : next);
+}
+
+function conditionIdsFor(condition) {
+  if (condition === "new") return "1000|1500";
+  if (condition === "used") return "2750|3000|4000|5000|6000";
+  return "";
+}
+
+function cleanCondition(value) {
+  const clean = String(value || "").toLowerCase().trim();
+  if (clean === "new" || clean === "sealed") return "new";
+  return "used";
+}
+
 function itemPrice(item) {
   const price = item && (item.price || item.itemPrice || item.lastSoldPrice || item.soldPrice);
   return Number(price && (price.value || price.convertedFromValue || price.amount) || 0);
@@ -335,6 +373,12 @@ function median(values) {
   if (!clean.length) return 0;
   const middle = Math.floor(clean.length / 2);
   return clean.length % 2 ? clean[middle] : roundMoney((clean[middle - 1] + clean[middle]) / 2);
+}
+
+function average(values) {
+  const clean = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (!clean.length) return 0;
+  return roundMoney(clean.reduce((sum, value) => sum + value, 0) / clean.length);
 }
 
 function valueBucket(price) {

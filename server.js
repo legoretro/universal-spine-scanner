@@ -100,7 +100,7 @@ async function handleApi(req, res, url) {
   if (method === "POST" && pathname === "/api/scan-stack") {
     const input = await readJson(req);
     const result = await visionScanner.scanStack(input, {
-      lookup: (title, itemType) => ebayLookup.lookup({ title, itemType }),
+      lookup: (title, itemType, condition) => ebayLookup.lookup({ title, itemType, condition: condition || input.condition }),
       imageLookup: (image, itemType) => ebayLookup.lookupImage({ image, itemType })
     });
     sendJson(res, 200, result);

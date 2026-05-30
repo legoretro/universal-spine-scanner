@@ -28,7 +28,7 @@
             <span class="step-pill">1</span>
             <div>
               <h2>What are you scanning?</h2>
-              <p>Pick broad type, then add one stack photo.</p>
+              <p>Start with one item. We can add stacks again after this works well.</p>
             </div>
           </div>
           <div class="type-grid" id="itemTypeButtons">
@@ -39,6 +39,10 @@
             <button class="type-button" type="button" data-type="CD">CD</button>
             <button class="type-button" type="button" data-type="Other">Other</button>
           </div>
+          <div class="condition-row" id="conditionButtons" aria-label="Condition">
+            <button class="condition-button active" type="button" data-condition-choice="used">Used</button>
+            <button class="condition-button" type="button" data-condition-choice="new">New</button>
+          </div>
         </section>
 
         <section class="scan-card camera-card">
@@ -46,7 +50,7 @@
             <span class="step-pill">2</span>
             <div>
               <h2>Photo</h2>
-              <p>Use a clear photo with the spine names showing.</p>
+              <p>Use one clear photo with the title or spine showing.</p>
             </div>
           </div>
           <div class="camera-actions">
@@ -108,15 +112,26 @@
           <div class="live-stack-panel">
             <div>
               <p class="eyebrow">Live stack lookup</p>
-              <h2>Results</h2>
-              <p>Set the item count, crop the stack, then scan.</p>
+              <h2>One item lookup</h2>
+              <p>Scan one item first. The goal is STR and average sold price.</p>
             </div>
             <div class="stack-controls">
               <label class="field">
-                <span>How many items in photo?</span>
-                <input id="stackCount" type="number" min="1" max="40" placeholder="Example: 16">
+                <span>Items in photo</span>
+                <input id="stackCount" type="number" min="1" max="40" value="1">
               </label>
-              <button id="scanStack" class="primary-button" type="button">Scan and value now</button>
+              <button id="scanStack" class="primary-button" type="button">Scan one item</button>
+              <button id="scanAnother" class="secondary-button" type="button">Scan another item</button>
+            </div>
+            <div class="result-filter-row">
+              <label class="mini-field">
+                <span>Min price</span>
+                <input id="minPriceFilter" type="number" min="0" step="1" placeholder="$">
+              </label>
+              <label class="mini-field">
+                <span>Min STR</span>
+                <input id="minStrFilter" type="number" min="0" max="100" step="1" placeholder="%">
+              </label>
             </div>
             <div id="backendPanel" class="backend-panel app-hidden">
               <label class="field">
@@ -125,7 +140,7 @@
               </label>
               <button id="saveApiBase" class="tiny-button" type="button">Save live data URL</button>
             </div>
-            <p id="liveLookupStatus" class="status-line">No live stack scan yet.</p>
+            <p id="liveLookupStatus" class="status-line">No scan yet.</p>
             <div id="liveResults" class="live-results"></div>
           </div>
         </section>

@@ -7,6 +7,7 @@
   var STATIC_PAGES_MODE = window.location.hostname.endsWith("github.io") || window.location.protocol === "file:";
   var state = {
     itemType: "VHS",
+    condition: "used",
     queue: [],
     currentIndex: -1,
     currentImage: null,
@@ -18,12 +19,14 @@
     contrast: false,
     ocrRaw: "",
     currentLookup: null,
+    liveResults: [],
     apiBaseUrl: "",
     scans: []
   };
 
   var els = {
     typeButtons: document.getElementById("itemTypeButtons"),
+    conditionButtons: document.getElementById("conditionButtons"),
     cameraInput: document.getElementById("cameraInput"),
     batchInput: document.getElementById("batchInput"),
     clearQueue: document.getElementById("clearQueue"),
@@ -45,7 +48,10 @@
     scanHorizontal: document.getElementById("scanHorizontal"),
     scanVertical: document.getElementById("scanVertical"),
     scanStack: document.getElementById("scanStack"),
+    scanAnother: document.getElementById("scanAnother"),
     stackCount: document.getElementById("stackCount"),
+    minPriceFilter: document.getElementById("minPriceFilter"),
+    minStrFilter: document.getElementById("minStrFilter"),
     backendStatus: document.getElementById("backendStatus"),
     backendPanel: document.getElementById("backendPanel"),
     apiBaseUrl: document.getElementById("apiBaseUrl"),
@@ -94,6 +100,17 @@
       Array.from(els.typeButtons.querySelectorAll("[data-type]")).forEach(function (item) {
         item.classList.toggle("active", item === button);
       });
+    });
+
+    els.conditionButtons.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-condition-choice]");
+      if (!button) return;
+      state.condition = button.getAttribute("data-condition-choice") || "used";
+      Array.from(els.conditionButtons.querySelectorAll("[data-condition-choice]")).forEach(function (item) {
+        item.classList.toggle("active", item === button);
+      });
+      if (els.condition) els.condition.value = state.condition;
+      renderStoredLiveResults();
     });
 
     els.cameraInput.addEventListener("change", function () {
@@ -176,6 +193,9 @@
       runOcr("vertical");
     });
     els.scanStack.addEventListener("click", runStackScan);
+    els.scanAnother.addEventListener("click", scanAnotherItem);
+    els.minPriceFilter.addEventListener("input", renderStoredLiveResults);
+    els.minStrFilter.addEventListener("input", renderStoredLiveResults);
     els.liveResults.addEventListener("click", handleLiveResultClick);
     els.liveResults.addEventListener("change", handleLiveResultEdit);
     els.saveApiBase.addEventListener("click", saveApiBaseUrl);
@@ -267,10 +287,13 @@
     state.contrast = false;
     state.ocrRaw = "";
     state.currentLookup = null;
+    state.liveResults = [];
     els.contrastButton.classList.remove("active");
     updateCropButtons();
     setProgress(0);
     renderValueResult(null);
+    els.liveResults.innerHTML = "";
+    setLiveStatus("No scan yet.");
   }
 
   function clearFormForNext() {
@@ -599,12 +622,13 @@
     }
     var base = makeProcessedCanvas();
     base = cropByScanBox(base);
-    var typedCount = Number(els.stackCount.value || 0);
+    var typedCount = Number(els.stackCount.value || 1);
+    if (!typedCount) typedCount = 1;
     var stackSource = state.scanBox && isFullScanBox(state.scanBox) ? cropLikelyStackArea(base) : base;
     var bands = splitStackBands(stackSource, typedCount);
     els.liveResults.innerHTML = "";
-    setLiveStatus("Found " + bands.length + " possible spine rows. Scanning now...");
-    setStatus(hasLiveBackend() ? "Backend scan running. This can take longer, but should read better." : "Live stack scan running. This can take a minute.");
+    setLiveStatus(typedCount === 1 ? "Scanning one item..." : "Found " + bands.length + " possible spine rows. Scanning now...");
+    setStatus(hasLiveBackend() ? "Backend scan running." : "Scanner running. This can take a minute.");
     setProgress(0.02);
     disableOcr(true);
     try {
@@ -637,7 +661,7 @@
         }
         var acceptedImageTitle = Boolean(imageLookup && imageLookup.suggestedTitle && title === cleanSpineCandidate(imageLookup.suggestedTitle));
         var lookup = shouldLookupTitle(title)
-          ? await api("/api/lookup-ebay?title=" + encodeURIComponent(title) + "&itemType=" + encodeURIComponent(state.itemType))
+          ? await api("/api/lookup-ebay?title=" + encodeURIComponent(title) + "&itemType=" + encodeURIComponent(state.itemType) + "&condition=" + encodeURIComponent(state.condition))
             .catch(function () {
               return imageLookup || buildStaticEbayLookup(title);
             })
@@ -656,10 +680,12 @@
           confidence: ocr.confidence,
           needsRescan: !shouldLookupTitle(title),
           lookup: lookup,
+          condition: state.condition,
           memory: findMemoryMatch(title),
           thumb: band.toDataURL("image/jpeg", 0.72)
         });
-        renderLiveResults(results);
+        state.liveResults = results;
+        renderStoredLiveResults();
       }
       setProgress(1);
       setLiveStatus(hasLiveBackend() ? "Done. Check the weak titles, then rescan tighter if needed." : "Open the Render app to use live eBay data.");
@@ -680,6 +706,7 @@
       body: JSON.stringify({
         image: imagePayloadForBackend(stackSource),
         itemType: state.itemType,
+        condition: state.condition,
         itemCount: itemCount
       })
     });
@@ -697,14 +724,29 @@
         confidence: Number(item.confidence || 0),
         needsRescan: Boolean(item.needsRescan),
         lookup: enrichLookup(item.lookup || buildNoLookup(title, "Backend OCR found a title but eBay lookup did not return data.")),
+        condition: item.condition || state.condition,
         memory: findMemoryMatch(title),
         thumb: ""
       };
     });
-    renderLiveResults(results);
+    state.liveResults = results;
+    renderStoredLiveResults();
     setProgress(1);
-    setLiveStatus("Done. Backend scanner checked the photo and loaded the result cards.");
-    setStatus("Backend scan complete.");
+    setLiveStatus("Done. Check STR and average sold price, then scan another item.");
+    setStatus("Scan complete.");
+  }
+
+  function scanAnotherItem() {
+    state.queue = [];
+    state.currentIndex = -1;
+    state.currentImage = null;
+    state.currentFileName = "";
+    resetImageTools();
+    renderQueue();
+    renderCanvas();
+    if (els.stackCount) els.stackCount.value = "1";
+    setStatus("Ready for the next item.");
+    els.cameraInput.click();
   }
 
   function equalBands(source, count) {
@@ -1312,21 +1354,47 @@
       });
   }
 
+  function renderStoredLiveResults() {
+    renderLiveResults(state.liveResults || []);
+  }
+
+  function filteredResults(results) {
+    var minPrice = moneyNumber(els.minPriceFilter && els.minPriceFilter.value);
+    var minStr = moneyNumber(els.minStrFilter && els.minStrFilter.value);
+    return results.map(function (result, index) {
+      return { result: result, index: index };
+    }).filter(function (entry) {
+      var lookup = enrichLookup(entry.result.lookup || buildStaticEbayLookup(entry.result.title));
+      var soldPrice = lookup.averageSoldPrice || lookup.medianSoldPrice || 0;
+      if (minPrice && soldPrice < minPrice) return false;
+      if (minStr && (lookup.sellThroughRate === null || lookup.sellThroughRate === undefined || Number(lookup.sellThroughRate) < minStr)) return false;
+      return true;
+    });
+  }
+
   function renderLiveResults(results) {
     if (!results.length) {
       els.liveResults.innerHTML = "";
       return;
     }
-    els.liveResults.innerHTML = results.map(function (result, index) {
+    var visibleResults = filteredResults(results);
+    if (!visibleResults.length) {
+      els.liveResults.innerHTML = "";
+      setLiveStatus("No results match those filters.");
+      return;
+    }
+    els.liveResults.innerHTML = visibleResults.map(function (entry) {
+      var result = entry.result;
+      var index = entry.index;
       var lookup = enrichLookup(result.lookup || buildStaticEbayLookup(result.title));
       var score = result.needsRescan ? { color: "unknown", label: "Rescan", reason: "OCR title is too weak.", decision: "review" } : scoreFor(lookup);
       if (result.needsRescan && !hasLookupSamples(lookup)) {
         return renderRescanResult(result, index, score);
       }
-      var price = lookup.estimatedPrice ? money(lookup.estimatedPrice) : "No price";
-      var activeCount = Number(lookup.activeCount || 0);
-      var soldCount = Number(lookup.soldCount || 0);
-      var totalCount = activeCount + soldCount;
+      var soldAverage = lookup.averageSoldPrice || lookup.medianSoldPrice || 0;
+      var price = soldAverage ? money(soldAverage) : "No sold average";
+      var soldCount = lookup.soldLookupAvailable ? String(Number(lookup.soldCount || 0)) : "unavailable";
+      var activeCount = Number(lookup.activeCount || 0) ? String(Number(lookup.activeCount || 0)) : "-";
       var quality = Math.round(Number(result.quality || 0) * 100);
       var note = result.needsRescan
         ? "Needs a clearer title. Crop tighter or retake closer."
@@ -1339,12 +1407,12 @@
             '<span class="score-pill">' + escapeHtml(score.label) + '</span>' +
           '</div>' +
           '<div class="metric-row">' +
-            '<span><strong>' + escapeHtml(price) + '</strong><small>price</small></span>' +
+            '<span><strong>' + escapeHtml(price) + '</strong><small>avg sold</small></span>' +
             '<span><strong>' + escapeHtml(formatRate(lookup.sellThroughRate)) + '</strong><small>STR</small></span>' +
-            '<span><strong>' + escapeHtml(String(totalCount || activeCount || "-")) + '</strong><small>' + escapeHtml(soldCount ? "sold+active" : "active") + '</small></span>' +
+            '<span><strong>' + escapeHtml(soldCount) + '</strong><small>sold</small></span>' +
+            '<span><strong>' + escapeHtml(activeCount) + '</strong><small>listed</small></span>' +
           '</div>' +
           '<p class="result-note">' + escapeHtml(note + " " + quality + "% title strength. " + score.reason) + '</p>' +
-          renderMarketSamples(lookup, result) +
         '</article>'
       );
     }).join("");
@@ -1471,7 +1539,7 @@
     }
     els.valueLookup.disabled = true;
     renderValueResult({ loading: true, query: query });
-    api("/api/lookup-ebay?title=" + encodeURIComponent(query) + "&itemType=" + encodeURIComponent(state.itemType))
+    api("/api/lookup-ebay?title=" + encodeURIComponent(query) + "&itemType=" + encodeURIComponent(state.itemType) + "&condition=" + encodeURIComponent(state.condition))
       .then(function (lookup) {
         state.currentLookup = enrichLookup(lookup);
         if (lookup.resaleDecision) {
@@ -1527,7 +1595,7 @@
       return;
     }
     if (type === "ebay-active" || type === "ebay-sold") {
-      api("/api/lookup-ebay?title=" + encodeURIComponent(query) + "&itemType=" + encodeURIComponent(state.itemType))
+      api("/api/lookup-ebay?title=" + encodeURIComponent(query) + "&itemType=" + encodeURIComponent(state.itemType) + "&condition=" + encodeURIComponent(state.condition))
         .then(function (lookup) {
           window.open(type === "ebay-active" ? lookup.activeUrl : lookup.soldUrl, "_blank", "noopener");
         })
@@ -1810,6 +1878,7 @@
       estimatedPrice: 0,
       activeCount: 0,
       soldCount: 0,
+      soldLookupAvailable: false,
       sellThroughRate: null,
       valueBucket: "check manually",
       score: scoreFor({ estimatedPrice: 0, sellThroughRate: null }),
@@ -1834,10 +1903,13 @@
   function enrichLookup(lookup) {
     var clean = Object.assign({}, lookup || {});
     clean.estimatedPrice = moneyNumber(clean.estimatedPrice);
+    clean.averageSoldPrice = moneyNumber(clean.averageSoldPrice);
+    clean.medianSoldPrice = moneyNumber(clean.medianSoldPrice);
     clean.activeCount = Number(clean.activeCount || 0);
     clean.soldCount = Number(clean.soldCount || 0);
+    clean.soldLookupAvailable = Boolean(clean.soldLookupAvailable || clean.soldSample && clean.soldSample.length);
     if (clean.sellThroughRate === undefined || clean.sellThroughRate === null) {
-      clean.sellThroughRate = calculateStr(clean);
+      clean.sellThroughRate = clean.soldLookupAvailable ? calculateStr(clean) : null;
     }
     clean.valueBucket = clean.valueBucket || bucketForPrice(clean.estimatedPrice);
     clean.score = clean.score || scoreFor(clean);
