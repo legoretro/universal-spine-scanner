@@ -2,7 +2,7 @@ services:
   - type: web
     name: universal-spine-scanner
     env: node
-    plan: starter
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     envVars:

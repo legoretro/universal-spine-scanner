@@ -6,7 +6,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node -c server.js && node -c src/config.js && node -c src/ebayLookup.js && node -c src/scanStore.js"
+    "test": "node -c server.js && node -c src/config.js && node -c src/ebayLookup.js && node -c src/scanStore.js && node -c src/visionScan.js"
+  },
+  "dependencies": {
+    "sharp": "^0.33.5",
+    "tesseract.js": "^5.1.1"
   },
   "engines": {
     "node": ">=20"

@@ -12,8 +12,9 @@ Seller memory means your own eBay sold/listed history. That requires seller OAut
 
 Live stack mode:
 - Upload one photo with many visible spines.
-- Tap "Scan stack now."
-- It OCRs each row and shows eBay value cards inside the page when the backend is connected.
+- Tap "Scan and value now."
+- When opened on the Render backend, the photo is sent to `/api/scan-stack` for backend OCR, then the app shows eBay value cards.
+- The backend processes the photo in memory for this route; it does not save the image unless a later save feature is added.
 - Type the item count for best multi-item splitting.
 - Add sold count, active count, and price to calculate STR/color in practice mode.
 
@@ -33,6 +34,7 @@ Main phone URL after hosting:
 - `/` also opens the scanner.
 
 Backend routes:
+- `/api/scan-stack`
 - `/api/lookup-ebay`
 - `/api/lookup-books`
 - `/api/save-scan`

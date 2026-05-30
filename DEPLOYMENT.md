@@ -46,3 +46,10 @@ Using GitHub Pages plus a backend:
 Sold-listing data:
 
 The scanner tries eBay sold lookup through the backend. If eBay does not allow the sold-data scope on your key yet, the scanner still opens the eBay sold-search page so you can check manually.
+
+Backend OCR:
+
+- Render installs `sharp` and `tesseract.js` during `npm install`.
+- The phone sends the cropped photo to `/api/scan-stack`.
+- The backend splits the stack into rows, reads each row, then asks eBay for matching value data.
+- The route processes the image in memory and returns results; it does not save the photo.

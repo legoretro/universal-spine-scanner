@@ -6,12 +6,14 @@ const { URL } = require("url");
 const { getConfig } = require("./src/config");
 const { ScanStore } = require("./src/scanStore");
 const { EbayLookup } = require("./src/ebayLookup");
+const { VisionScanner } = require("./src/visionScan");
 
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, "public");
 const config = getConfig(rootDir);
 const scanStore = new ScanStore({ config, dataDir: path.join(rootDir, "data") });
 const ebayLookup = new EbayLookup(config);
+const visionScanner = new VisionScanner(config);
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -47,7 +49,7 @@ function readJson(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 4 * 1024 * 1024) {
+      if (body.length > 14 * 1024 * 1024) {
         reject(new Error("Request body is too large"));
         req.destroy();
       }
@@ -92,6 +94,15 @@ async function handleApi(req, res, url) {
   if (method === "POST" && pathname === "/api/lookup-ebay-image") {
     const input = await readJson(req);
     sendJson(res, 200, await ebayLookup.lookupImage(input));
+    return;
+  }
+
+  if (method === "POST" && pathname === "/api/scan-stack") {
+    const input = await readJson(req);
+    const result = await visionScanner.scanStack(input, {
+      lookup: (title, itemType) => ebayLookup.lookup({ title, itemType })
+    });
+    sendJson(res, 200, result);
     return;
   }
 

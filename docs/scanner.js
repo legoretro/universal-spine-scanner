@@ -403,7 +403,7 @@
       setStatus("Take or choose a photo first.");
       return;
     }
-    if (!window.Tesseract) {
+    if (!hasLiveBackend() && !window.Tesseract) {
       setStatus("OCR library did not load. Check your internet connection once, then try again.");
       return;
     }
@@ -513,6 +513,19 @@
     return canvas.toDataURL("image/jpeg", 0.76).replace(/^data:image\/jpeg;base64,/, "");
   }
 
+  function imagePayloadForBackend(source) {
+    var maxSide = 1800;
+    var scale = Math.min(1, maxSide / Math.max(source.width, source.height, 1));
+    var canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(source.width * scale));
+    canvas.height = Math.max(1, Math.round(source.height * scale));
+    var ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.84).replace(/^data:image\/jpeg;base64,/, "");
+  }
+
   function makeSpineOcrVariants(source) {
     var variants = [
       { name: "center-strip", xStart: 0.12, xEnd: 0.9, yStart: 0.12, yEnd: 0.88, threshold: false, priority: 4, mode: "7" },
@@ -591,10 +604,14 @@
     var bands = splitStackBands(stackSource, typedCount);
     els.liveResults.innerHTML = "";
     setLiveStatus("Found " + bands.length + " possible spine rows. Scanning now...");
-    setStatus("Live stack scan running. This can take a minute.");
+    setStatus(hasLiveBackend() ? "Backend scan running. This can take longer, but should read better." : "Live stack scan running. This can take a minute.");
     setProgress(0.02);
     disableOcr(true);
     try {
+      if (hasLiveBackend()) {
+        await runBackendStackScan(stackSource, typedCount || bands.length);
+        return;
+      }
       var results = [];
       setLiveStatus("Reading the whole stack first...");
       var stackHints = await readStackTextHints(stackSource, bands.length).catch(function () {
@@ -653,6 +670,41 @@
     } finally {
       disableOcr(false);
     }
+  }
+
+  async function runBackendStackScan(stackSource, itemCount) {
+    setLiveStatus("Sending cropped photo to backend OCR...");
+    setProgress(0.08);
+    var payload = await api("/api/scan-stack", {
+      method: "POST",
+      body: JSON.stringify({
+        image: imagePayloadForBackend(stackSource),
+        itemType: state.itemType,
+        itemCount: itemCount
+      })
+    });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    var results = (payload.items || []).map(function (item) {
+      var title = cleanTitle(item.title || "");
+      return {
+        id: cryptoId(),
+        title: title || "Unclear spine " + item.index,
+        rawText: item.rawText || "",
+        imageMatched: false,
+        quality: Number(item.titleStrength || 0),
+        confidence: Number(item.confidence || 0),
+        needsRescan: Boolean(item.needsRescan),
+        lookup: enrichLookup(item.lookup || buildNoLookup(title, "Backend OCR found a title but eBay lookup did not return data.")),
+        memory: findMemoryMatch(title),
+        thumb: ""
+      };
+    });
+    renderLiveResults(results);
+    setProgress(1);
+    setLiveStatus("Done. Backend OCR checked the photo and loaded the result cards.");
+    setStatus("Backend scan complete.");
   }
 
   function equalBands(source, count) {
