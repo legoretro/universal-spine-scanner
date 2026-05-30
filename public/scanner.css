@@ -284,9 +284,9 @@ h2 {
 
 .type-button {
   border-radius: 999px;
-  font-size: 0.86rem;
-  min-height: 38px;
-  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
+  min-height: 34px;
+  padding: 0.34rem 0.45rem;
 }
 
 .type-button.active,

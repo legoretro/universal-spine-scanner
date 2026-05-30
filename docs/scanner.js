@@ -593,7 +593,7 @@
       setStatus("Take or choose a stack photo first.");
       return;
     }
-    if (!window.Tesseract) {
+    if (!hasLiveBackend() && !window.Tesseract) {
       setStatus("OCR library did not load. Check your internet connection once, then try again.");
       return;
     }

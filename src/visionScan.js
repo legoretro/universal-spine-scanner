@@ -32,28 +32,21 @@ class VisionScanner {
       for (let index = 0; index < bands.length; index += 1) {
         const band = bands[index];
         const ocr = await readBand({ sharp, worker, image: base, metadata, band, index });
-        let title = applyKnownTitleHelp(ocr.title || "");
-        let lookup = null;
-        if (services && services.lookup && shouldLookupTitle(title)) {
-          lookup = await services.lookup(title, itemType).catch((error) => ({
-            error: error.message,
-            query: title,
-            source: "lookup_failed"
-          }));
-          if (lookup && lookup.suggestedTitle && shouldUseSuggestedTitle(title, lookup.suggestedTitle)) {
-            title = cleanSpineCandidate(lookup.suggestedTitle);
-            lookup.query = title;
-          }
-        }
+        const bandImage = services && services.imageLookup
+          ? await makeBandLookupImage({ sharp, image: base, metadata, band }).catch(() => "")
+          : "";
+        const resolved = await resolveBandTitle({ ocr, itemType, services, bandImage });
         items.push({
           index: index + 1,
-          title: title || `Unclear spine ${index + 1}`,
+          title: resolved.title || `Unclear spine ${index + 1}`,
           rawText: ocr.rawText,
           confidence: Math.round(ocr.confidence),
-          titleStrength: roundNumber(titleQuality(title), 2),
-          needsRescan: !shouldLookupTitle(title),
+          titleStrength: roundNumber(titleQuality(resolved.title), 2),
+          titleSource: resolved.source,
+          needsRescan: resolved.needsRescan,
           source: "backend_ocr",
-          lookup
+          lookup: resolved.lookup,
+          candidates: resolved.candidates
         });
       }
     } finally {
@@ -197,6 +190,8 @@ async function readBand(context) {
     { name: "core", xStart: 0.14, xEnd: 0.88, yStart: 0.12, yEnd: 0.88, threshold: false, mode: "7", priority: 4 },
     { name: "wide", xStart: 0.04, xEnd: 0.96, yStart: 0.05, yEnd: 0.95, threshold: false, mode: "7", priority: 3 },
     { name: "contrast", xStart: 0.08, xEnd: 0.94, yStart: 0.08, yEnd: 0.92, threshold: true, mode: "7", priority: 2 },
+    { name: "invert-core", xStart: 0.12, xEnd: 0.9, yStart: 0.1, yEnd: 0.9, threshold: false, invert: true, mode: "7", priority: 3 },
+    { name: "invert-wide", xStart: 0.04, xEnd: 0.96, yStart: 0.05, yEnd: 0.95, threshold: false, invert: true, mode: "7", priority: 2 },
     { name: "block", xStart: 0.08, xEnd: 0.94, yStart: 0.05, yEnd: 0.95, threshold: false, mode: "6", priority: 1 }
   ];
   let best = { title: "", rawText: "", confidence: 0, quality: 0, score: -1 };
@@ -218,7 +213,9 @@ async function readBand(context) {
     }
     if (quality >= 0.72 && confidence >= 45) break;
   }
-  best.title = applyKnownTitleHelp(best.title);
+  const rawKnownTitle = knownTitleFrom(best.rawText);
+  best.title = rawKnownTitle || applyKnownTitleHelp(best.title);
+  best.quality = titleQuality(best.title);
   return best;
 }
 
@@ -245,10 +242,145 @@ async function makeBandImage(context, variant) {
     .grayscale()
     .normalise()
     .sharpen({ sigma: 1.1 });
+  if (variant.invert) {
+    pipeline = pipeline.negate();
+  }
   if (variant.threshold) {
     pipeline = pipeline.threshold(142);
   }
   return pipeline.png().toBuffer();
+}
+
+async function makeBandLookupImage(context) {
+  const { sharp, image, metadata, band } = context;
+  const padding = Math.max(6, Math.floor((band.end - band.start) * 0.08));
+  const top = Math.max(0, band.start - padding);
+  const height = Math.min(metadata.height - top, band.end - band.start + padding * 2);
+  return sharp(image)
+    .extract({ left: 0, top, width: metadata.width, height })
+    .resize({ width: 900, withoutEnlargement: true })
+    .jpeg({ quality: 76 })
+    .toBuffer()
+    .then((buffer) => buffer.toString("base64"));
+}
+
+async function resolveBandTitle({ ocr, itemType, services, bandImage }) {
+  const candidates = buildTitleCandidates(ocr).slice(0, 4);
+  let title = candidates[0] && candidates[0].title || "";
+  let lookup = null;
+  let source = candidates[0] && candidates[0].source || "ocr";
+  let bestConfidence = 0;
+
+  if (services && services.lookup) {
+    for (const candidate of candidates) {
+      if (!shouldLookupTitle(candidate.title)) continue;
+      const next = await services.lookup(candidate.title, itemType).catch((error) => ({
+        error: error.message,
+        query: candidate.title,
+        source: "lookup_failed"
+      }));
+      const confidence = lookupConfidence(candidate.title, next);
+      const hasKnownTitle = isKnownHelpTitle(candidate.title);
+      if (next && next.suggestedTitle && shouldUseSuggestedTitle(candidate.title, next.suggestedTitle)) {
+        title = cleanSpineCandidate(next.suggestedTitle);
+        next.query = title;
+        lookup = next;
+        source = "ebay_title_rescue";
+        bestConfidence = Math.max(confidence, 0.65);
+        break;
+      }
+      if (confidence > bestConfidence || (hasKnownTitle && lookupHasData(next))) {
+        title = candidate.title;
+        lookup = next;
+        source = hasKnownTitle ? "known_title_lookup" : candidate.source;
+        bestConfidence = confidence;
+      }
+      if ((confidence >= 0.34 || hasKnownTitle) && lookupHasData(next)) {
+        break;
+      }
+    }
+  }
+
+  const weakOcr = !shouldLookupTitle(title) || isLikelyGarbageTitle(title);
+  if (services && services.imageLookup && bandImage && (!lookupHasData(lookup) || weakOcr)) {
+    const imageLookup = await services.imageLookup(bandImage, itemType).catch((error) => ({
+      error: error.message,
+      source: "image_lookup_failed"
+    }));
+    if (imageLookup && imageLookup.suggestedTitle && shouldUseSuggestedTitle(title, imageLookup.suggestedTitle)) {
+      title = cleanSpineCandidate(imageLookup.suggestedTitle);
+      lookup = imageLookup;
+      lookup.query = title;
+      source = "ebay_image_rescue";
+      bestConfidence = Math.max(bestConfidence, 0.45);
+    } else if (!lookupHasData(lookup) && lookupHasData(imageLookup) && lookupConfidence(title, imageLookup) >= 0.32) {
+      lookup = imageLookup;
+      source = "ebay_image_match";
+      bestConfidence = Math.max(bestConfidence, 0.32);
+    }
+  }
+
+  const needsRescan = !shouldLookupTitle(title)
+    || isLikelyGarbageTitle(title)
+    || (!lookupHasData(lookup) && titleQuality(title) < 0.64)
+    || (lookupHasData(lookup) && bestConfidence < 0.2 && !isKnownHelpTitle(title));
+
+  if (lookup && lookupHasData(lookup) && needsRescan) {
+    lookup.noLookupReason = "eBay returned samples, but the OCR title is still weak. Retake closer before trusting this.";
+  }
+
+  return {
+    title: title || "",
+    lookup,
+    source,
+    needsRescan,
+    candidates: candidates.map((candidate) => candidate.title).slice(0, 3)
+  };
+}
+
+function buildTitleCandidates(ocr) {
+  const rawText = ocr && ocr.rawText || "";
+  const values = [];
+  addTitleCandidate(values, knownTitleFrom(rawText), "known_title", 50);
+  addTitleCandidate(values, knownTitleFrom(ocr && ocr.title), "known_title", 45);
+  addTitleCandidate(values, applyKnownTitleHelp(ocr && ocr.title || ""), "ocr", 8);
+  rawLineCandidates(rawText).forEach((candidate, index) => {
+    addTitleCandidate(values, candidate, "raw_line", Math.max(0, 7 - index));
+  });
+  return values
+    .filter((candidate) => candidate.title)
+    .map((candidate) => ({
+      ...candidate,
+      quality: titleQuality(candidate.title),
+      garbage: isLikelyGarbageTitle(candidate.title)
+    }))
+    .sort((a, b) => {
+      const aScore = a.quality * 100 + a.bonus - (a.garbage ? 40 : 0);
+      const bScore = b.quality * 100 + b.bonus - (b.garbage ? 40 : 0);
+      return bScore - aScore;
+    });
+}
+
+function addTitleCandidate(values, value, source, bonus) {
+  const title = cleanSpineCandidate(value || "");
+  if (!title || title.length < 3) return;
+  if (values.some((candidate) => sameTitle(candidate.title, title))) return;
+  values.push({ title, source, bonus: Number(bonus || 0) });
+}
+
+function rawLineCandidates(text) {
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map((line) => cleanSpineCandidate(line))
+    .filter((line) => line.length >= 3 && /[a-z]/i.test(line) && !isNoiseLine(line));
+  const candidates = [];
+  lines.forEach((line) => candidates.push(applyKnownTitleHelp(line)));
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    candidates.push(applyKnownTitleHelp(`${lines[index]} ${lines[index + 1]}`));
+  }
+  return candidates
+    .filter(Boolean)
+    .sort((a, b) => titleQuality(b) - titleQuality(a));
 }
 
 function bestSpineTitle(text) {
@@ -300,35 +432,47 @@ function applyOcrWordRepairs(value) {
     .trim();
 }
 
+const KNOWN_TITLE_PATTERNS = [
+  [/desp|esperado/i, "Desperado"],
+  [/quinn|medicine.*woman|season.*five|complete.*five/i, "Dr. Quinn Medicine Woman The Complete Season Five"],
+  [/barber|barbershop/i, "Barbershop"],
+  [/expect.*miracle|miracle.*expect/i, "Expecting a Miracle"],
+  [/wedding.*dress/i, "The Wedding Dress"],
+  [/onbat|34th|34\s*street|miracee|mirace\b|miracle/i, "Miracle on 34th Street"],
+  [/winnie|pooh|many.*adventures|manyadventures/i, "Winnie the Pooh"],
+  [/lion.*king|simba|simba.*pride/i, "The Lion King II Simba's Pride"],
+  [/stuart.*little.*2|little\s*2/i, "Stuart Little 2"],
+  [/stuart.*little/i, "Stuart Little"],
+  [/old.*yell|oldyell|yeller/i, "Old Yeller"],
+  [/lady.*tramp|tramp.*ii|lagy.*tramp/i, "Lady and the Tramp II"],
+  [/bedknob|broom|broomstick|bibilo/i, "Bedknobs and Broomsticks"],
+  [/\bbabe\b|\bbabe\s/i, "Babe"],
+  [/aladdin.*king|king.*thieves|aladdwr|aladd/i, "Aladdin and the King of Thieves"],
+  [/return.*jaf|jafar|jaf[a-z]{0,3}/i, "The Return of Jafar"],
+  [/poca|pocahontas|new.?world/i, "Pocahontas II Journey to a New World"],
+  [/jungle.*book|mowgli|baloo|jungl/i, "The Second Jungle Book Mowgli and Baloo"],
+  [/yellow.*dog|far.*from.*home|from home|adventures.*dog/i, "Far From Home The Adventures of Yellow Dog"],
+  [/heidi/i, "Heidi"],
+  [/island.*world|top.*world/i, "The Island at the Top of the World"]
+];
+
 function applyKnownTitleHelp(value) {
   const title = cleanText(value);
-  const direct = [
-    [/desp|esperado/i, "Desperado"],
-    [/quinn|medicine.*woman|season.*five|complete.*five/i, "Dr. Quinn Medicine Woman The Complete Season Five"],
-    [/barber|barbershop/i, "Barbershop"],
-    [/expect.*miracle|miracle.*expect/i, "Expecting a Miracle"],
-    [/wedding.*dress/i, "The Wedding Dress"],
-    [/miracle/i, "Miracle on 34th Street"],
-    [/winnie|pooh/i, "Winnie the Pooh"],
-    [/lion.*king|simba/i, "The Lion King II Simba's Pride"],
-    [/stuart.*little.*2|little\s*2/i, "Stuart Little 2"],
-    [/stuart.*little/i, "Stuart Little"],
-    [/old.*yell/i, "Old Yeller"],
-    [/lady.*tramp/i, "Lady and the Tramp II"],
-    [/bedknob|broom/i, "Bedknobs and Broomsticks"],
-    [/\bbabe\b/i, "Babe"],
-    [/aladdin|king.*thieves/i, "Aladdin and the King of Thieves"],
-    [/jafar/i, "The Return of Jafar"],
-    [/pocahontas/i, "Pocahontas II Journey to a New World"],
-    [/jungle.*book|mowgli|baloo/i, "The Second Jungle Book Mowgli and Baloo"],
-    [/yellow.*dog|far.*from.*home|from home/i, "Far From Home The Adventures of Yellow Dog"],
-    [/heidi/i, "Heidi"],
-    [/island.*world/i, "The Island at the Top of the World"]
-  ];
-  for (const [pattern, replacement] of direct) {
-    if (pattern.test(title)) return replacement;
+  const loose = looseTitleKey(title);
+  for (const [pattern, replacement] of KNOWN_TITLE_PATTERNS) {
+    if (pattern.test(title) || pattern.test(loose)) return replacement;
   }
   return title;
+}
+
+function knownTitleFrom(value) {
+  const repaired = applyKnownTitleHelp(value);
+  return isKnownHelpTitle(repaired) ? repaired : "";
+}
+
+function isKnownHelpTitle(value) {
+  const key = looseTitleKey(value);
+  return KNOWN_TITLE_PATTERNS.some((entry) => looseTitleKey(entry[1]) === key);
 }
 
 function titleQuality(value) {
@@ -351,11 +495,32 @@ function titleQuality(value) {
   score -= Math.min(0.25, weirdWords * 0.12);
   score -= digits > letters ? 0.12 : 0;
   if (words.length === 1 && letters < 7) score -= 0.18;
+  if (isLikelyGarbageTitle(title)) score = Math.min(score, 0.34);
   return Math.max(0, Math.min(1, score));
 }
 
 function shouldLookupTitle(title) {
-  return titleQuality(title) >= 0.43;
+  return titleQuality(title) >= 0.43 && !isLikelyGarbageTitle(title);
+}
+
+function isLikelyGarbageTitle(value) {
+  const title = cleanText(value);
+  if (!title || isKnownHelpTitle(title)) return false;
+  const words = title.split(/\s+/).filter(Boolean);
+  const letters = (title.match(/[a-z]/gi) || []).length;
+  if (letters < 5) return true;
+  const alphaWords = words.map((word) => word.replace(/[^a-z]/gi, "")).filter(Boolean);
+  if (!alphaWords.length) return true;
+  const meaningful = alphaWords.filter((word) => word.length >= 3 && /[aeiou]/i.test(word)).length;
+  const shortWords = alphaWords.filter((word) => word.length <= 2).length;
+  const weirdWords = alphaWords.filter((word) => word.length >= 4 && !/[aeiou]/i.test(word)).length;
+  const punctuation = (title.match(/[^\w\s]/g) || []).length;
+  const punctuationRatio = punctuation / Math.max(title.length, 1);
+  if (alphaWords.length >= 3 && meaningful <= 1) return true;
+  if (alphaWords.length >= 4 && shortWords / alphaWords.length > 0.45) return true;
+  if (alphaWords.length >= 3 && weirdWords / alphaWords.length >= 0.35) return true;
+  if (punctuationRatio > 0.28) return true;
+  return false;
 }
 
 function shouldUseSuggestedTitle(currentTitle, suggestedTitle) {
@@ -377,11 +542,55 @@ function hasSharedTitleToken(first, second) {
   return firstWords.some((word) => secondWords.indexOf(word) !== -1);
 }
 
+function lookupHasData(lookup) {
+  if (!lookup || lookup.error) return false;
+  return Number(lookup.activeCount || 0) > 0
+    || Number(lookup.soldCount || 0) > 0
+    || (Array.isArray(lookup.activeSample) && lookup.activeSample.length > 0)
+    || (Array.isArray(lookup.soldSample) && lookup.soldSample.length > 0);
+}
+
+function lookupConfidence(title, lookup) {
+  if (!lookupHasData(lookup)) return 0;
+  if (lookup.suggestedTitle && shouldUseSuggestedTitle(title, lookup.suggestedTitle)) return 0.75;
+  const samples = []
+    .concat(Array.isArray(lookup.soldSample) ? lookup.soldSample : [])
+    .concat(Array.isArray(lookup.activeSample) ? lookup.activeSample : []);
+  let best = 0;
+  samples.slice(0, 8).forEach((item) => {
+    best = Math.max(best, titleOverlap(title, item.title || ""));
+  });
+  return best;
+}
+
+function titleOverlap(first, second) {
+  const firstWords = titleTokens(first);
+  const secondWords = titleTokens(second);
+  if (!firstWords.length || !secondWords.length) return 0;
+  const secondSet = new Set(secondWords);
+  const shared = firstWords.filter((word) => secondSet.has(word)).length;
+  return shared / Math.max(firstWords.length, secondWords.length);
+}
+
+function sameTitle(first, second) {
+  const left = looseTitleKey(first);
+  const right = looseTitleKey(second);
+  return Boolean(left && right && (left === right || titleOverlap(left, right) >= 0.78));
+}
+
 function titleTokens(value) {
   return cleanText(value).toLowerCase()
     .split(/\s+/)
     .map((word) => word.replace(/[^a-z0-9]/g, ""))
     .filter((word) => word.length >= 4 && !["with", "from", "the", "and", "edition", "movie", "dvd", "vhs"].includes(word));
+}
+
+function looseTitleKey(value) {
+  return cleanText(value).toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\b(the|a|an|and|of|for|with|from|to|vhs|dvd|blu|ray|movie|video|tape|disc|new|used|edition|special|home)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isNoiseLine(value) {
