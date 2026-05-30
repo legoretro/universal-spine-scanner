@@ -1320,6 +1320,9 @@
     els.liveResults.innerHTML = results.map(function (result, index) {
       var lookup = enrichLookup(result.lookup || buildStaticEbayLookup(result.title));
       var score = result.needsRescan ? { color: "unknown", label: "Rescan", reason: "OCR title is too weak.", decision: "review" } : scoreFor(lookup);
+      if (result.needsRescan && !hasLookupSamples(lookup)) {
+        return renderRescanResult(result, index, score);
+      }
       var price = lookup.estimatedPrice ? money(lookup.estimatedPrice) : "No price";
       var activeCount = Number(lookup.activeCount || 0);
       var soldCount = Number(lookup.soldCount || 0);
@@ -1345,6 +1348,27 @@
         '</article>'
       );
     }).join("");
+  }
+
+  function renderRescanResult(result, index, score) {
+    return (
+      '<article class="live-result-row rescan-result score-' + escapeAttr(score.color) + '">' +
+        '<div class="result-mainline">' +
+          '<span class="live-number">' + (index + 1) + '</span>' +
+          '<input class="live-title-input" data-live-title="' + index + '" value="" placeholder="Retake closer or type title">' +
+          '<span class="score-pill">' + escapeHtml(score.label) + '</span>' +
+        '</div>' +
+        '<p class="result-note">Could not read this spine clearly. Crop tighter around the stack or retake closer.</p>' +
+        (result.title && !/^unclear spine/i.test(result.title) ? '<p class="ocr-clue">OCR clue: ' + escapeHtml(result.title) + '</p>' : '') +
+      '</article>'
+    );
+  }
+
+  function hasLookupSamples(lookup) {
+    return Number(lookup.activeCount || 0) > 0
+      || Number(lookup.soldCount || 0) > 0
+      || (Array.isArray(lookup.activeSample) && lookup.activeSample.length > 0)
+      || (Array.isArray(lookup.soldSample) && lookup.soldSample.length > 0);
   }
 
   function handleLiveResultClick(event) {

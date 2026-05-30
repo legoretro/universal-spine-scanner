@@ -588,6 +588,25 @@ progress {
   line-height: 1.35;
 }
 
+.rescan-result {
+  background: rgba(255, 250, 254, 0.92);
+  gap: 0.5rem;
+}
+
+.rescan-result .result-note {
+  background: #fff4f6;
+  border: 1px solid #efc9cf;
+  border-radius: 1rem;
+  padding: 0.65rem;
+}
+
+.ocr-clue {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .metric-row {
   display: grid;
   gap: 0.45rem;

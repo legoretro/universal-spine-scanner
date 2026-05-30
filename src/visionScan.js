@@ -189,10 +189,7 @@ async function readBand(context) {
   const variants = [
     { name: "core", xStart: 0.14, xEnd: 0.88, yStart: 0.12, yEnd: 0.88, threshold: false, mode: "7", priority: 4 },
     { name: "wide", xStart: 0.04, xEnd: 0.96, yStart: 0.05, yEnd: 0.95, threshold: false, mode: "7", priority: 3 },
-    { name: "contrast", xStart: 0.08, xEnd: 0.94, yStart: 0.08, yEnd: 0.92, threshold: true, mode: "7", priority: 2 },
-    { name: "invert-core", xStart: 0.12, xEnd: 0.9, yStart: 0.1, yEnd: 0.9, threshold: false, invert: true, mode: "7", priority: 3 },
-    { name: "invert-wide", xStart: 0.04, xEnd: 0.96, yStart: 0.05, yEnd: 0.95, threshold: false, invert: true, mode: "7", priority: 2 },
-    { name: "block", xStart: 0.08, xEnd: 0.94, yStart: 0.05, yEnd: 0.95, threshold: false, mode: "6", priority: 1 }
+    { name: "invert-wide", xStart: 0.04, xEnd: 0.96, yStart: 0.05, yEnd: 0.95, threshold: false, invert: true, mode: "7", priority: 2 }
   ];
   let best = { title: "", rawText: "", confidence: 0, quality: 0, score: -1 };
   for (const variant of variants) {
@@ -240,7 +237,7 @@ async function makeBandImage(context, variant) {
       width: safeWidth,
       height: safeHeight
     })
-    .resize({ height: 300, fit: "inside", withoutEnlargement: false })
+    .resize({ height: 240, fit: "inside", withoutEnlargement: false })
     .grayscale()
     .normalise()
     .sharpen({ sigma: 1.1 });
