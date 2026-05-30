@@ -9,6 +9,7 @@ Practice mode can scan photos, run OCR, save on the phone, export CSV, and open 
 Exact eBay value math and Supabase syncing need backend hosting later because private keys cannot go inside GitHub Pages.
 After a backend is hosted, paste its URL into `Live eBay backend URL` in the scanner. Then the cards can load eBay active/sold samples, median price, STR, and score color directly inside the page.
 Seller memory means your own eBay sold/listed history. That requires seller OAuth on the backend; it is not a manual Remember button.
+The local eBay Listing Studio syncs your seller sold history, stores the safe item memory, then pushes it to the same Supabase project. This scanner only reads that resale memory so it can say "Sold before" while you are out shopping.
 
 Live stack mode:
 - Upload one photo with many visible spines.
@@ -44,3 +45,4 @@ Backend routes:
 Supabase:
 - Use the same Supabase project.
 - Run `supabase/schema.sql` once in Supabase SQL editor.
+- The same schema includes `resale_sold_memory` for the scanner's "Sold before" badge.

@@ -563,6 +563,12 @@ progress {
   padding: 0.8rem;
 }
 
+.live-result-row.has-seller-memory {
+  background: #effbf5;
+  border-color: #35b66f;
+  box-shadow: 0 14px 34px rgba(34, 168, 97, 0.16);
+}
+
 .score-red {
   border-color: rgba(217, 87, 104, 0.62);
 }
@@ -737,6 +743,16 @@ progress {
   font-size: 0.78rem;
   font-weight: 760;
   grid-column: 1 / -1;
+}
+
+.memory-line.memory-found {
+  background: #d8f7e4;
+  border: 1px solid #72d79a;
+  border-radius: 999px;
+  color: #176338;
+  font-size: 0.82rem;
+  font-weight: 920;
+  padding: 0.48rem 0.65rem;
 }
 
 .market-samples {

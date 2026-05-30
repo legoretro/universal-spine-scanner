@@ -1396,11 +1396,12 @@
       var soldCount = lookup.soldLookupAvailable ? String(Number(lookup.soldCount || 0)) : "unavailable";
       var activeCount = Number(lookup.activeCount || 0) ? String(Number(lookup.activeCount || 0)) : "-";
       var quality = Math.round(Number(result.quality || 0) * 100);
+      var seller = lookup.sellerMemory || lookup.myHistory || {};
       var note = result.needsRescan
         ? "Needs a clearer title. Crop tighter or retake closer."
         : (result.imageMatched ? "Matched with image + OCR." : "Read by OCR.");
       return (
-        '<article class="live-result-row score-' + escapeAttr(score.color) + '">' +
+        '<article class="live-result-row score-' + escapeAttr(score.color) + (seller.found ? " has-seller-memory" : "") + '">' +
           '<div class="result-mainline">' +
             '<span class="live-number">' + (index + 1) + '</span>' +
             '<input class="live-title-input" data-live-title="' + index + '" value="' + escapeAttr(result.title) + '">' +
@@ -1412,6 +1413,7 @@
             '<span><strong>' + escapeHtml(soldCount) + '</strong><small>sold</small></span>' +
             '<span><strong>' + escapeHtml(activeCount) + '</strong><small>listed</small></span>' +
           '</div>' +
+          '<p class="memory-line' + (seller.found ? " memory-found" : "") + '">' + escapeHtml(sellerMemoryFor(result)) + '</p>' +
           '<p class="result-note">' + escapeHtml(note + " " + quality + "% title strength. " + score.reason) + '</p>' +
         '</article>'
       );
@@ -1797,14 +1799,21 @@
     var lookup = result && result.lookup || {};
     var seller = lookup.sellerMemory || lookup.myHistory || null;
     if (seller && seller.found) {
-      var pieces = ["My eBay memory: sold/listed before"];
+      var pieces = ["Sold before"];
       if (seller.soldDate) pieces.push(shortDate(seller.soldDate));
       if (seller.soldPrice) pieces.push("sold " + money(seller.soldPrice));
-      if (seller.listedPrice) pieces.push("listed " + money(seller.listedPrice));
+      if (seller.daysToSell !== null && seller.daysToSell !== undefined && seller.daysToSell !== "") pieces.push(formatDaysToSell(seller.daysToSell));
       return pieces.join(" - ");
     }
     if (!hasLiveBackend()) return "My eBay memory: connect backend + seller OAuth";
     return "My eBay memory: seller history not connected yet";
+  }
+
+  function formatDaysToSell(value) {
+    var days = Number(value);
+    if (!Number.isFinite(days)) return "";
+    if (days === 0) return "sold same day";
+    return "sold in " + days + " day" + (days === 1 ? "" : "s");
   }
 
   function renderSampleColumn(label, items) {

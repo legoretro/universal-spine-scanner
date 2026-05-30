@@ -1,7 +1,8 @@
 class EbayLookup {
-  constructor(config) {
+  constructor(config, options = {}) {
     this.config = config;
     this.tokens = {};
+    this.sellerMemoryStore = options.sellerMemoryStore || null;
   }
 
   async lookup(input) {
@@ -58,6 +59,7 @@ class EbayLookup {
       ? Math.round((soldCount / Math.max(activeCount + soldCount, 1)) * 100)
       : null;
     const suggestedTitle = suggestTitle(query, soldItems.concat(activeItems));
+    const sellerMemory = await this.lookupSellerMemory(suggestedTitle || query, itemType, warnings);
 
     return {
       query,
@@ -82,10 +84,7 @@ class EbayLookup {
       suggestedTitle,
       activeSample: summarizeLookupItems(activeItems),
       soldSample: summarizeLookupItems(soldItems),
-      sellerMemory: {
-        found: false,
-        reason: "Seller OAuth history is not connected yet."
-      },
+      sellerMemory,
       warnings,
       note: "Lookup runs through the backend. No private eBay keys are sent to the browser."
     };
@@ -132,6 +131,7 @@ class EbayLookup {
     const activePrices = activeItems.map(itemPrice).filter((price) => price > 0);
     const activeMedianPrice = median(activePrices);
     const suggestedTitle = cleanSuggestedTitle(activeItems[0] && activeItems[0].title || "");
+    const sellerMemory = await this.lookupSellerMemory(suggestedTitle, itemType, warnings);
     return {
       source: activeItems.length ? "ebay_image_search" : "image_no_match",
       itemType,
@@ -148,9 +148,30 @@ class EbayLookup {
       suggestedTitle,
       activeSample: summarizeLookupItems(activeItems),
       soldSample: [],
+      sellerMemory,
       warnings,
       note: "Visual lookup uses eBay Browse search_by_image through the backend."
     };
+  }
+
+  async lookupSellerMemory(title, itemType, warnings) {
+    if (!this.sellerMemoryStore) {
+      return {
+        found: false,
+        reason: "Seller history is not connected yet."
+      };
+    }
+    try {
+      return await this.sellerMemoryStore.findBest({ title, itemType });
+    } catch (error) {
+      if (warnings) {
+        warnings.push(`Seller memory: ${error.message}`);
+      }
+      return {
+        found: false,
+        reason: "Seller memory lookup failed."
+      };
+    }
   }
 
   async searchActiveListings(query, categoryIds, condition) {

@@ -29,6 +29,7 @@ function getConfig(rootDir) {
     supabaseUrl: value(fileEnv, "SUPABASE_URL"),
     supabaseServiceRoleKey: value(fileEnv, "SUPABASE_SERVICE_ROLE_KEY"),
     supabaseScansTable: value(fileEnv, "SUPABASE_SCANS_TABLE", "spine_scans"),
+    supabaseSoldMemoryTable: value(fileEnv, "SUPABASE_SOLD_MEMORY_TABLE", "resale_sold_memory"),
     ebayClientId: value(fileEnv, "EBAY_CLIENT_ID"),
     ebayClientSecret: value(fileEnv, "EBAY_CLIENT_SECRET"),
     ebayMarketplaceId: value(fileEnv, "EBAY_MARKETPLACE_ID", "EBAY_US"),

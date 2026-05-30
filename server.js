@@ -7,12 +7,14 @@ const { getConfig } = require("./src/config");
 const { ScanStore } = require("./src/scanStore");
 const { EbayLookup } = require("./src/ebayLookup");
 const { VisionScanner } = require("./src/visionScan");
+const { SellerMemoryStore } = require("./src/sellerMemoryStore");
 
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, "public");
 const config = getConfig(rootDir);
 const scanStore = new ScanStore({ config, dataDir: path.join(rootDir, "data") });
-const ebayLookup = new EbayLookup(config);
+const sellerMemoryStore = new SellerMemoryStore(config);
+const ebayLookup = new EbayLookup(config, { sellerMemoryStore });
 const visionScanner = new VisionScanner(config);
 
 const contentTypes = {
