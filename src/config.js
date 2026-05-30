@@ -34,16 +34,20 @@ function getConfig(rootDir) {
     ebayMarketplaceId: value(fileEnv, "EBAY_MARKETPLACE_ID", "EBAY_US"),
     ebayCurrency: value(fileEnv, "EBAY_CURRENCY", "USD"),
     allowedOrigins: value(fileEnv, "ALLOWED_ORIGINS", "*"),
+    openaiApiKey: value(fileEnv, "OPENAI_API_KEY"),
+    openaiVisionModel: value(fileEnv, "OPENAI_VISION_MODEL", "gpt-4.1-mini"),
     ebayApiBaseUrl: "https://api.ebay.com"
   };
 
   config.supabaseConfigured = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
   config.ebayConfigured = Boolean(config.ebayClientId && config.ebayClientSecret);
+  config.openaiConfigured = Boolean(config.openaiApiKey);
 
   config.publicConfig = function publicConfig() {
     return {
       supabaseConfigured: config.supabaseConfigured,
       ebayConfigured: config.ebayConfigured,
+      visionConfigured: config.openaiConfigured,
       marketplaceId: config.ebayMarketplaceId,
       currency: config.ebayCurrency
     };

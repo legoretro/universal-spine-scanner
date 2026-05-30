@@ -1,9 +1,22 @@
+const { scanStackWithOpenAI } = require("./openaiVisionScan");
+
 class VisionScanner {
   constructor(config) {
     this.config = config;
   }
 
   async scanStack(input, services) {
+    if (this.config.openaiConfigured) {
+      try {
+        const openAiResult = await scanStackWithOpenAI(input, this.config, services);
+        if (openAiResult && openAiResult.items && openAiResult.items.length) {
+          return openAiResult;
+        }
+      } catch (error) {
+        console.warn(`OpenAI vision scan failed, falling back to backend OCR: ${error.message}`);
+      }
+    }
+
     const sharp = optionalRequire("sharp");
     const tesseract = optionalRequire("tesseract.js");
     if (!sharp || !tesseract) {

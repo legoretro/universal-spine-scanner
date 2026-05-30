@@ -673,7 +673,7 @@
   }
 
   async function runBackendStackScan(stackSource, itemCount) {
-    setLiveStatus("Sending cropped photo to backend OCR...");
+    setLiveStatus("Sending cropped photo to backend scanner...");
     setProgress(0.08);
     var payload = await api("/api/scan-stack", {
       method: "POST",
@@ -703,7 +703,7 @@
     });
     renderLiveResults(results);
     setProgress(1);
-    setLiveStatus("Done. Backend OCR checked the photo and loaded the result cards.");
+    setLiveStatus("Done. Backend scanner checked the photo and loaded the result cards.");
     setStatus("Backend scan complete.");
   }
 
